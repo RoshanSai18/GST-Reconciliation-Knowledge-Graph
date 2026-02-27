@@ -10,23 +10,32 @@ import {
   GitMerge,
   ChevronRight,
   MessageSquare,
+  UserCircle,
 } from 'lucide-react'
 import { useAuth } from '@/hooks/useAuth'
 import { cn } from '@/lib/utils'
 
 const NAV_ITEMS = [
-  { to: '/dashboard', icon: LayoutDashboard, label: 'Dashboard' },
-  { to: '/invoices',  icon: FileText,        label: 'Invoices' },
-  { to: '/vendors',   icon: Users,           label: 'Vendors' },
-  { to: '/graph',     icon: Network,         label: 'Graph Explorer' },
-  { to: '/patterns',  icon: AlertTriangle,   label: 'Patterns' },
-  { to: '/chat',      icon: MessageSquare,   label: 'Chat Bot' },
-  { to: '/upload',    icon: Upload,          label: 'Upload Data' },
+  { to: '/profile',   icon: UserCircle,      label: 'Profile' },
+  { to: '/dashboard', icon: LayoutDashboard,  label: 'Dashboard' },
+  { to: '/invoices',  icon: FileText,         label: 'Invoices' },
+  { to: '/vendors',   icon: Users,            label: 'Vendors' },
+  { to: '/graph',     icon: Network,          label: 'Graph Explorer' },
+  { to: '/patterns',  icon: AlertTriangle,    label: 'Patterns' },
+  { to: '/upload',    icon: Upload,           label: 'Upload Data' },
 ]
 
 export default function Sidebar() {
-  const { logout } = useAuth()
+  const { logout, username } = useAuth()
   const navigate   = useNavigate()
+
+  // Derive initials from Clerk user name / email
+  const initials = username
+    .split(' ')
+    .map(n => n[0])
+    .join('')
+    .toUpperCase()
+    .slice(0, 2)
 
   function handleLogout() {
     logout()
@@ -76,15 +85,17 @@ export default function Sidebar() {
 
       {/* User + logout */}
       <div className="px-2.5 pb-4" style={{ borderTop: '1px solid #E4E4E7', paddingTop: '0.75rem' }}>
-        <div className="flex items-center gap-2.5 px-3 py-2.5 mb-1 rounded-xl bg-bg">
+        <button
+          onClick={() => navigate('/profile')}
+          className="w-full flex items-center gap-2.5 px-3 py-2.5 mb-1 rounded-xl bg-bg hover:bg-accent-lt transition-colors duration-200 text-left"
+        >
           <div className="w-7 h-7 rounded-full bg-accent-lt border border-accent/20 flex items-center justify-center flex-shrink-0">
-            <span className="text-[11px] font-bold text-accent">A</span>
+            <span className="text-[11px] font-bold text-accent">{initials}</span>
           </div>
           <div className="flex-1 min-w-0">
-            <p className="text-[12px] font-semibold text-foreground truncate">Admin</p>
-            <p className="text-[10px] text-muted truncate">GST Officer</p>
+            <p className="text-[12px] font-semibold text-foreground truncate">{username}</p>
           </div>
-        </div>
+        </button>
         <button
           onClick={handleLogout}
           className="w-full flex items-center gap-2.5 px-3 py-2 rounded-xl text-[13px] font-medium text-muted hover:text-danger hover:bg-danger-lt transition-all duration-200"

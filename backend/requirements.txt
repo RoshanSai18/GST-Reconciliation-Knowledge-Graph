@@ -12,9 +12,10 @@ openpyxl==3.1.5
 # Data validation
 pydantic[email]==2.10.3
 
-# Authentication (JWT)
+# Authentication (Clerk JWT via JWKS / legacy HS256)
 python-jose[cryptography]==3.3.0
 passlib[bcrypt]==1.7.4
+httpx==0.27.2
 
 # File upload support
 python-multipart==0.0.12
