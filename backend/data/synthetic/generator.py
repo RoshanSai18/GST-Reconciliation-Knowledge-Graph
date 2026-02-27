@@ -279,7 +279,7 @@ def generate_gstr_records(
                 "gstin":             gstin,
                 "period":            period,
                 "filing_date":       _fmt_date(nxt + timedelta(days=10)),
-                "status":            "Filed",
+                "status":            "FILED",
                 "total_outward_tax": 0.0,
             })
             g1_lk[gstin][period] = g1_id
