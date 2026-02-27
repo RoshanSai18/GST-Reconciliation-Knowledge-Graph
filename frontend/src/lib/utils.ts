@@ -5,7 +5,8 @@ export function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs))
 }
 
-export function fmtCurrency(value: number, decimals = 0): string {
+export function fmtCurrency(value: number | null | undefined, decimals = 0): string {
+  if (value == null) return '—'
   if (value >= 1_00_00_000) return `₹${(value / 1_00_00_000).toFixed(1)}Cr`
   if (value >= 1_00_000)    return `₹${(value / 1_00_000).toFixed(1)}L`
   if (value >= 1_000)       return `₹${(value / 1_000).toFixed(1)}K`

@@ -9,6 +9,7 @@ import {
   LogOut,
   GitMerge,
   ChevronRight,
+  MessageSquare,
 } from 'lucide-react'
 import { useAuth } from '@/hooks/useAuth'
 import { cn } from '@/lib/utils'
@@ -19,6 +20,7 @@ const NAV_ITEMS = [
   { to: '/vendors',   icon: Users,           label: 'Vendors' },
   { to: '/graph',     icon: Network,         label: 'Graph Explorer' },
   { to: '/patterns',  icon: AlertTriangle,   label: 'Patterns' },
+  { to: '/chat',      icon: MessageSquare,   label: 'Chat Bot' },
   { to: '/upload',    icon: Upload,          label: 'Upload Data' },
 ]
 

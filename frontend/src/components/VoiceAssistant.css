@@ -1,0 +1,24 @@
+/* Voice Assistant Animations */
+
+@keyframes pulse-delayed {
+  0%, 100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.5;
+  }
+}
+
+/* Pulse animation with staggered delay */
+.delay-100 {
+  animation-delay: 100ms;
+}
+
+.delay-200 {
+  animation-delay: 200ms;
+}
+
+/* Breathing indicator for microphone */
+.breathing-pulse {
+  animation: pulse-delayed 1.5s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+}

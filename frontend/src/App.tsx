@@ -8,6 +8,7 @@ import VendorsPage from '@/pages/VendorsPage'
 import GraphPage from '@/pages/GraphPage'
 import PatternsPage from '@/pages/PatternsPage'
 import UploadPage from '@/pages/UploadPage'
+import { ChatPage } from '@/pages/ChatPage'
 
 function ProtectedRoute({ children }: { children: React.ReactNode }) {
   const { isAuthenticated } = useAuth()
@@ -32,6 +33,7 @@ function AppRoutes() {
         <Route path="/graph"     element={<GraphPage />} />
         <Route path="/patterns"  element={<PatternsPage />} />
         <Route path="/upload"    element={<UploadPage />} />
+        <Route path="/chat"      element={<ChatPage />} />
       </Route>
       <Route path="*" element={<Navigate to="/dashboard" replace />} />
     </Routes>
