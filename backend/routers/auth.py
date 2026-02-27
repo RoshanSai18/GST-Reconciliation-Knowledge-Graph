@@ -1,23 +1,29 @@
 """
-routers/auth.py — JWT authentication endpoints.
+routers/auth.py — Clerk JWT authentication.
 
-POST /auth/token   → LoginRequest → TokenResponse
-GET  /auth/me      → CurrentUser  (requires Bearer token)
+GET  /auth/me  → CurrentUser  (requires Clerk Bearer session token)
 
-This replaces the temporary bearer-string guard used in Phases 5-8.
+Clerk issues RS256-signed JWTs (session tokens). We verify them by:
+  1. Fetching Clerk's public JWKS from CLERK_JWKS_URL
+  2. Matching the JWT's `kid` header to a JWK entry
+  3. Decoding and verifying the token with python-jose
+
+Set CLERK_JWKS_URL in your .env file:
+  https://<your-frontend-api>/.well-known/jwks.json
 """
 
 from __future__ import annotations
 
 import logging
-from datetime import datetime, timedelta, timezone
+from functools import lru_cache
 
+import httpx
 from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from jose import JWTError, jwt
 
 import config
-from models.schemas import CurrentUser, LoginRequest, TokenResponse
+from models.schemas import CurrentUser
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -26,97 +32,101 @@ _bearer = HTTPBearer(auto_error=False)
 
 
 # ---------------------------------------------------------------------------
-# Token helpers
+# JWKS helpers
 # ---------------------------------------------------------------------------
 
-def _create_token(username: str, role: str = "admin") -> str:
-    expire = datetime.now(timezone.utc) + timedelta(
-        minutes=config.ACCESS_TOKEN_EXPIRE_MINUTES
-    )
-    payload = {
-        "sub":  username,
-        "role": role,
-        "exp":  expire,
-        "iat":  datetime.now(timezone.utc),
-    }
-    return jwt.encode(payload, config.JWT_SECRET, algorithm=config.JWT_ALGORITHM)
-
-
-def _decode_token(token: str) -> dict:
-    try:
-        return jwt.decode(
-            token,
-            config.JWT_SECRET,
-            algorithms=[config.JWT_ALGORITHM],
+@lru_cache(maxsize=1)
+def _get_jwks() -> dict:
+    """
+    Fetch and memory-cache Clerk's JWKS.
+    Cache is cleared on process restart (suitable for hackathon use).
+    """
+    if not config.CLERK_JWKS_URL:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="CLERK_JWKS_URL is not configured on the server.",
         )
+    with httpx.Client(timeout=10.0) as client:
+        response = client.get(config.CLERK_JWKS_URL)
+        response.raise_for_status()
+    return response.json()
+
+
+def _verify_clerk_token(token: str) -> dict:
+    """Verify a Clerk session JWT against the JWKS, return the payload."""
+    try:
+        unverified_header = jwt.get_unverified_header(token)
     except JWTError as exc:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
-            detail=f"Invalid or expired token: {exc}",
+            detail=f"Malformed token header: {exc}",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+
+    kid = unverified_header.get("kid")
+    jwks = _get_jwks()
+
+    # Find the matching public key by key ID
+    matching_key: dict | None = next(
+        (k for k in jwks.get("keys", []) if k.get("kid") == kid),
+        None,
+    )
+    if matching_key is None:
+        # Key not in cache — could be a key rotation; bust the cache and retry
+        _get_jwks.cache_clear()
+        refreshed = _get_jwks()
+        matching_key = next(
+            (k for k in refreshed.get("keys", []) if k.get("kid") == kid),
+            None,
+        )
+
+    if matching_key is None:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="No matching public key found for this token.",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+
+    try:
+        payload = jwt.decode(
+            token,
+            matching_key,
+            algorithms=["RS256"],
+            options={"verify_aud": False},  # Clerk tokens have no `aud` by default
+        )
+        return payload
+    except JWTError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail=f"Invalid or expired Clerk token: {exc}",
             headers={"WWW-Authenticate": "Bearer"},
         )
 
 
 # ---------------------------------------------------------------------------
-# Dependency: require valid JWT
+# Dependency: require valid Clerk JWT
 # ---------------------------------------------------------------------------
 
 def require_jwt(
     creds: HTTPAuthorizationCredentials | None = Depends(_bearer),
 ) -> CurrentUser:
-    """FastAPI dependency — validates Bearer JWT and returns CurrentUser."""
+    """FastAPI dependency — validates a Clerk Bearer JWT and returns CurrentUser."""
     if creds is None:
-        # Fallback: accept the legacy static secret so old calls still work
-        # during the transition.  Remove this branch after full migration.
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="No credentials provided",
+            detail="No credentials provided.",
             headers={"WWW-Authenticate": "Bearer"},
         )
 
-    # Allow legacy static secret (backwards compat during hackathon)
-    if creds.credentials == config.JWT_SECRET:
-        return CurrentUser(username="admin", role="admin")
+    payload = _verify_clerk_token(creds.credentials)
 
-    payload = _decode_token(creds.credentials)
-    return CurrentUser(
-        username = payload.get("sub", "unknown"),
-        role     = payload.get("role", "user"),
+    # Clerk tokens use `sub` as the Clerk user ID; email is in `email`
+    username: str = (
+        payload.get("email")
+        or payload.get("primary_email_address")
+        or payload.get("sub", "unknown")
     )
-
-
-# ---------------------------------------------------------------------------
-# POST /auth/token
-# ---------------------------------------------------------------------------
-
-@router.post(
-    "/token",
-    summary="Login",
-    response_model=TokenResponse,
-    status_code=status.HTTP_200_OK,
-)
-def login(body: LoginRequest) -> TokenResponse:
-    """
-    Authenticate with username/password.
-    Returns a JWT access token.
-    """
-    if (
-        body.username != config.ADMIN_USERNAME
-        or body.password != config.ADMIN_PASSWORD
-    ):
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Incorrect username or password",
-        )
-
-    token = _create_token(username=body.username, role="admin")
-    logger.info("Login: user=%s issued JWT", body.username)
-
-    return TokenResponse(
-        access_token = token,
-        token_type   = "bearer",
-        expires_in   = config.ACCESS_TOKEN_EXPIRE_MINUTES * 60,
-    )
+    return CurrentUser(username=username, role="admin")
 
 
 # ---------------------------------------------------------------------------
@@ -129,5 +139,5 @@ def login(body: LoginRequest) -> TokenResponse:
     response_model=CurrentUser,
 )
 def me(current_user: CurrentUser = Depends(require_jwt)) -> CurrentUser:
-    """Return the currently authenticated user (requires Bearer token)."""
+    """Return the currently authenticated Clerk user (requires Bearer session token)."""
     return current_user
