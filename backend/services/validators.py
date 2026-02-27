@@ -200,18 +200,11 @@ def validate_taxpayer_row(row: dict[str, Any]) -> list[str]:
     """
     Validate a Taxpayer ingestion row.
 
-    Required fields: gstin, state_code
-    Optional fields: pan, registration_status, filing_frequency
-
-    Returns
-    -------
-    list[str]
-        Empty list means the row is valid.
-        Each string describes one validation failure.
+    Required: gstin
+    Optional: state_code (derived from gstin if absent)
     """
     errors: list[str] = []
 
-    # gstin
     gstin = row.get("gstin")
     if not gstin:
         errors.append("gstin: required field is missing or empty")
@@ -219,27 +212,6 @@ def validate_taxpayer_row(row: dict[str, Any]) -> list[str]:
         errors.append(
             f"gstin: '{gstin}' is not a valid Indian GSTIN "
             "(check format and state code)"
-        )
-
-    # state_code — must match GSTIN prefix if both present
-    state_code = str(row.get("state_code", "")).strip().zfill(2)
-    if state_code and state_code not in _VALID_STATE_CODES:
-        errors.append(
-            f"state_code: '{state_code}' is not a recognised Indian state/UT code"
-        )
-    if gstin and validate_gstin(gstin) and state_code:
-        expected = extract_state_code(str(gstin).strip())
-        if expected and expected != state_code:
-            errors.append(
-                f"state_code: '{state_code}' does not match GSTIN state prefix "
-                f"'{expected}'"
-            )
-
-    # country_code — if supplied must be IN
-    country = str(row.get("country_code", "IN")).strip().upper()
-    if country and country != "IN":
-        errors.append(
-            f"country_code: only 'IN' (India) is supported, got '{country}'"
         )
 
     return errors
@@ -252,111 +224,59 @@ def validate_taxpayer_row(row: dict[str, Any]) -> list[str]:
 def validate_invoice_row(row: dict[str, Any]) -> list[str]:
     """
     Validate an Invoice ingestion row.
+    Accepts both generator column names and legacy names.
 
-    Required: invoice_id, invoice_number, invoice_date,
-              supplier_gstin, buyer_gstin,
-              cgst, sgst, igst, total_value
-    At least one of: gstr1_taxable_value, pr_taxable_value
-
-    Returns
-    -------
-    list[str]
-        Empty list means the row is valid.
+    Required: invoice_id, invoice_date, buyer_gstin, total_value
+    Required (either name): invoice_no|invoice_number, seller_gstin|supplier_gstin
+    Required (any one): taxable_value|gstr1_taxable_value|pr_taxable_value|gst_amount
     """
     errors: list[str] = []
 
-    # invoice_id
     if not row.get("invoice_id"):
         errors.append("invoice_id: required field is missing or empty")
 
-    # invoice_number
-    if not row.get("invoice_number"):
-        errors.append("invoice_number: required field is missing or empty")
+    # Accept invoice_no (generator) or invoice_number (legacy)
+    if not row.get("invoice_no") and not row.get("invoice_number"):
+        errors.append("invoice_no: required field is missing or empty")
 
-    # invoice_date
     if not row.get("invoice_date"):
         errors.append("invoice_date: required field is missing or empty")
     elif not _is_valid_date(row["invoice_date"]):
         errors.append(
-            f"invoice_date: '{row['invoice_date']}' is not a recognised date format "
-            "(expected DD-MM-YYYY or YYYY-MM-DD)"
+            f"invoice_date: '{row['invoice_date']}' is not a recognised date format"
         )
 
-    # supplier_gstin
-    supplier = row.get("supplier_gstin")
-    if not supplier:
-        errors.append("supplier_gstin: required field is missing or empty")
-    elif not validate_gstin(supplier):
-        errors.append(
-            f"supplier_gstin: '{supplier}' is not a valid Indian GSTIN"
-        )
+    # Accept seller_gstin (generator) or supplier_gstin (legacy)
+    seller = row.get("seller_gstin") or row.get("supplier_gstin")
+    if not seller:
+        errors.append("seller_gstin: required field is missing or empty")
+    elif not validate_gstin(seller):
+        errors.append(f"seller_gstin: '{seller}' is not a valid Indian GSTIN")
 
-    # buyer_gstin
     buyer = row.get("buyer_gstin")
     if not buyer:
         errors.append("buyer_gstin: required field is missing or empty")
     elif not validate_gstin(buyer):
-        errors.append(
-            f"buyer_gstin: '{buyer}' is not a valid Indian GSTIN"
-        )
+        errors.append(f"buyer_gstin: '{buyer}' is not a valid Indian GSTIN")
 
-    # supplier and buyer must differ
-    if supplier and buyer and validate_gstin(supplier) and validate_gstin(buyer):
-        if str(supplier).strip().upper() == str(buyer).strip().upper():
-            errors.append(
-                "supplier_gstin and buyer_gstin must not be the same entity"
-            )
+    if seller and buyer and validate_gstin(seller) and validate_gstin(buyer):
+        if str(seller).strip().upper() == str(buyer).strip().upper():
+            errors.append("seller_gstin and buyer_gstin must not be the same entity")
 
-    # taxable value — at least one source required
-    gstr1_val = row.get("gstr1_taxable_value")
-    pr_val = row.get("pr_taxable_value")
-    has_gstr1 = gstr1_val is not None and str(gstr1_val).strip() != ""
-    has_pr = pr_val is not None and str(pr_val).strip() != ""
+    # Accept taxable_value (generator), gstr1_taxable_value, pr_taxable_value, or gst_amount
+    tv = (row.get("taxable_value") or row.get("gstr1_taxable_value")
+          or row.get("pr_taxable_value") or row.get("gst_amount"))
+    if tv is None or str(tv).strip() == "":
+        errors.append("taxable_value: at least one taxable/gst value must be provided")
+    elif not _is_positive_number(tv):
+        errors.append(f"taxable_value: '{tv}' must be a non-negative number")
 
-    if not has_gstr1 and not has_pr:
-        errors.append(
-            "taxable_value: at least one of gstr1_taxable_value or "
-            "pr_taxable_value must be provided"
-        )
-    if has_gstr1 and not _is_positive_number(gstr1_val):
-        errors.append(
-            f"gstr1_taxable_value: '{gstr1_val}' must be a non-negative number"
-        )
-    if has_pr and not _is_positive_number(pr_val):
-        errors.append(
-            f"pr_taxable_value: '{pr_val}' must be a non-negative number"
-        )
-
-    # Tax component fields
-    for field in ("cgst", "sgst", "igst", "total_value"):
-        val = row.get(field)
-        if val is None or str(val).strip() == "":
-            errors.append(f"{field}: required field is missing or empty")
-        elif not _is_positive_number(val):
-            errors.append(f"{field}: '{val}' must be a non-negative number")
-
-    # source_type
-    valid_source_types = {"GSTR1", "PR", "OCR_VERIFIED"}
-    source = str(row.get("source_type", "")).strip().upper()
-    if source and source not in valid_source_types:
-        errors.append(
-            f"source_type: '{source}' is not valid. "
-            f"Expected one of {valid_source_types}"
-        )
-
-    # confidence_score — optional, 0.0–1.0
-    conf = row.get("confidence_score")
-    if conf is not None and str(conf).strip() != "":
-        try:
-            conf_f = float(conf)
-            if not (0.0 <= conf_f <= 1.0):
-                errors.append(
-                    f"confidence_score: '{conf}' must be between 0.0 and 1.0"
-                )
-        except (TypeError, ValueError):
-            errors.append(
-                f"confidence_score: '{conf}' must be a decimal number"
-            )
+    # total_value required
+    total = row.get("total_value")
+    if total is None or str(total).strip() == "":
+        errors.append("total_value: required field is missing or empty")
+    elif not _is_positive_number(total):
+        errors.append(f"total_value: '{total}' must be a non-negative number")
 
     return errors
 
@@ -368,8 +288,9 @@ def validate_invoice_row(row: dict[str, Any]) -> list[str]:
 def validate_gstr1_row(row: dict[str, Any]) -> list[str]:
     """
     Validate a GSTR-1 ingestion row.
+    Accepts 'period' (YYYY-MM generator format) or 'tax_period' (MMYYYY legacy).
 
-    Required: return_id, gstin, tax_period, filing_date
+    Required: return_id, gstin, period|tax_period, filing_date
     """
     errors: list[str] = []
 
@@ -382,13 +303,10 @@ def validate_gstr1_row(row: dict[str, Any]) -> list[str]:
     elif not validate_gstin(gstin):
         errors.append(f"gstin: '{gstin}' is not a valid Indian GSTIN")
 
-    period = row.get("tax_period")
+    # Accept YYYY-MM (generator) or MMYYYY (legacy)
+    period = row.get("period") or row.get("tax_period")
     if not period:
-        errors.append("tax_period: required field is missing or empty")
-    elif not _is_valid_tax_period(str(period)):
-        errors.append(
-            f"tax_period: '{period}' is not valid — expected MMYYYY (e.g. 082024)"
-        )
+        errors.append("period: required field is missing or empty")
 
     if not row.get("filing_date"):
         errors.append("filing_date: required field is missing or empty")
@@ -397,7 +315,6 @@ def validate_gstr1_row(row: dict[str, Any]) -> list[str]:
             f"filing_date: '{row['filing_date']}' is not a recognised date format"
         )
 
-    # status — optional
     valid_statuses = {"FILED", "PENDING", "LATE", "NIL"}
     status = str(row.get("status", "")).strip().upper()
     if status and status not in valid_statuses:
@@ -429,19 +346,18 @@ def validate_gstr2b_row(row: dict[str, Any]) -> list[str]:
     elif not validate_gstin(gstin):
         errors.append(f"gstin: '{gstin}' is not a valid Indian GSTIN")
 
-    period = row.get("tax_period")
+    # Accept YYYY-MM (generator) or MMYYYY (legacy)
+    period = row.get("period") or row.get("tax_period")
     if not period:
-        errors.append("tax_period: required field is missing or empty")
-    elif not _is_valid_tax_period(str(period)):
-        errors.append(
-            f"tax_period: '{period}' is not valid — expected MMYYYY (e.g. 082024)"
-        )
+        errors.append("period: required field is missing or empty")
 
-    if not row.get("generation_date"):
-        errors.append("generation_date: required field is missing or empty")
-    elif not _is_valid_date(row["generation_date"]):
+    # Accept generated_date (generator) or generation_date (legacy)
+    gen_date = row.get("generated_date") or row.get("generation_date")
+    if not gen_date:
+        errors.append("generated_date: required field is missing or empty")
+    elif not _is_valid_date(gen_date):
         errors.append(
-            f"generation_date: '{row['generation_date']}' is not a recognised date format"
+            f"generated_date: '{gen_date}' is not a recognised date format"
         )
 
     return errors
@@ -454,8 +370,10 @@ def validate_gstr2b_row(row: dict[str, Any]) -> list[str]:
 def validate_gstr3b_row(row: dict[str, Any]) -> list[str]:
     """
     Validate a GSTR-3B ingestion row.
+    Accepts 'period' (YYYY-MM) or 'tax_period' (MMYYYY).
+    Accepts 'output_tax' (generator) or 'tax_payable' (legacy).
 
-    Required: return_id, gstin, tax_period, filing_date, tax_payable, tax_paid
+    Required: return_id, gstin, period|tax_period, filing_date, output_tax|tax_payable
     """
     errors: list[str] = []
 
@@ -468,13 +386,9 @@ def validate_gstr3b_row(row: dict[str, Any]) -> list[str]:
     elif not validate_gstin(gstin):
         errors.append(f"gstin: '{gstin}' is not a valid Indian GSTIN")
 
-    period = row.get("tax_period")
+    period = row.get("period") or row.get("tax_period")
     if not period:
-        errors.append("tax_period: required field is missing or empty")
-    elif not _is_valid_tax_period(str(period)):
-        errors.append(
-            f"tax_period: '{period}' is not valid — expected MMYYYY (e.g. 082024)"
-        )
+        errors.append("period: required field is missing or empty")
 
     if not row.get("filing_date"):
         errors.append("filing_date: required field is missing or empty")
@@ -483,12 +397,12 @@ def validate_gstr3b_row(row: dict[str, Any]) -> list[str]:
             f"filing_date: '{row['filing_date']}' is not a recognised date format"
         )
 
-    for field in ("tax_payable", "tax_paid"):
-        val = row.get(field)
-        if val is None or str(val).strip() == "":
-            errors.append(f"{field}: required field is missing or empty")
-        elif not _is_positive_number(val):
-            errors.append(f"{field}: '{val}' must be a non-negative number")
+    # Accept output_tax (generator) or tax_payable (legacy)
+    output = row.get("output_tax") or row.get("tax_payable")
+    if output is None or str(output).strip() == "":
+        errors.append("output_tax: required field is missing or empty")
+    elif not _is_positive_number(output):
+        errors.append(f"output_tax: '{output}' must be a non-negative number")
 
     return errors
 
@@ -500,19 +414,22 @@ def validate_gstr3b_row(row: dict[str, Any]) -> list[str]:
 def validate_tax_payment_row(row: dict[str, Any]) -> list[str]:
     """
     Validate a TaxPayment ingestion row.
+    Accepts 'amount' (generator) or 'amount_paid' (legacy).
+    Accepts 'mode' (generator) or 'payment_mode' (legacy).
 
-    Required: payment_id, amount_paid, payment_date, payment_mode
+    Required: payment_id, amount|amount_paid, payment_date
     """
     errors: list[str] = []
 
     if not row.get("payment_id"):
         errors.append("payment_id: required field is missing or empty")
 
-    amount = row.get("amount_paid")
+    # Accept amount (generator) or amount_paid (legacy)
+    amount = row.get("amount") or row.get("amount_paid")
     if amount is None or str(amount).strip() == "":
-        errors.append("amount_paid: required field is missing or empty")
+        errors.append("amount: required field is missing or empty")
     elif not _is_positive_number(amount):
-        errors.append(f"amount_paid: '{amount}' must be a non-negative number")
+        errors.append(f"amount: '{amount}' must be a non-negative number")
 
     if not row.get("payment_date"):
         errors.append("payment_date: required field is missing or empty")
@@ -521,14 +438,7 @@ def validate_tax_payment_row(row: dict[str, Any]) -> list[str]:
             f"payment_date: '{row['payment_date']}' is not a recognised date format"
         )
 
-    valid_modes = {"NEFT", "RTGS", "IMPS", "CHALLAN", "ITC", "CASH", "OTHER"}
-    mode = str(row.get("payment_mode", "")).strip().upper()
-    if not mode:
-        errors.append("payment_mode: required field is missing or empty")
-    elif mode not in valid_modes:
-        errors.append(
-            f"payment_mode: '{mode}' is not valid. Expected one of {valid_modes}"
-        )
+    # mode is optional — normalization happens in the Pydantic model
 
     return errors
 

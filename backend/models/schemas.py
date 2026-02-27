@@ -82,14 +82,47 @@ class PatternType(str, Enum):
 # 2. Ingest row models (match Excel column names from generator.py)
 # =============================================================================
 
+def _yyyy_mm_to_mmyyyy(value: Any) -> str:
+    """Convert '2025-04' (YYYY-MM) → '042025' (MMYYYY). Pass-through for other formats."""
+    if isinstance(value, str) and len(value) == 7 and value[4] == "-":
+        try:
+            year, month = value.split("-")
+            return f"{month.zfill(2)}{year}"
+        except ValueError:
+            pass
+    return str(value) if value is not None else ""
+
+
 class TaxpayerIngestionRow(BaseModel):
-    """One row from taxpayers.xlsx."""
+    """One row from taxpayers.xlsx (generator schema)."""
     gstin:               str
+    # Generator column names
+    legal_name:          str | None = None
+    trade_name:          str | None = None
+    state:               str | None = None
+    registration_date:   str | None = None
+    taxpayer_type:       str | None = None
+    risk_score:          float | None = None
+    # Legacy / optional
     pan:                 str | None = None
-    state_code:          str
+    state_code:          str | None = None
     country_code:        str = "IN"
     registration_status: str | None = None
     filing_frequency:    str | None = None
+
+    @model_validator(mode="before")
+    @classmethod
+    def _normalize(cls, data: Any) -> Any:
+        if isinstance(data, dict):
+            d = dict(data)
+            # Derive state_code from GSTIN prefix if not supplied
+            if not d.get("state_code") and d.get("gstin"):
+                d["state_code"] = str(d["gstin"])[:2]
+            # Map generator "status" → registration_status
+            if not d.get("registration_status") and d.get("status"):
+                d["registration_status"] = d["status"]
+            return d
+        return data
 
     @field_validator("gstin")
     @classmethod
@@ -98,81 +131,165 @@ class TaxpayerIngestionRow(BaseModel):
             raise ValueError("gstin must not be empty")
         return v.strip()
 
-    @field_validator("country_code")
-    @classmethod
-    def must_be_india(cls, v: str) -> str:
-        if v.upper() != "IN":
-            raise ValueError("Only Indian GSTINs are supported (country_code must be 'IN')")
-        return v.upper()
-
 
 class InvoiceIngestionRow(BaseModel):
-    """One row from invoices.xlsx."""
-    invoice_id:            str
-    invoice_number:        str
-    invoice_date:          str                     # DD-MM-YYYY stored as string for flexibility
-    supplier_gstin:        str
-    buyer_gstin:           str
+    """One row from invoices.xlsx (generator schema)."""
+    invoice_id:    str
+    invoice_date:  str
+    buyer_gstin:   str
+    total_value:   float
+    # Generator column names
+    invoice_no:            str | None = None
+    seller_gstin:          str | None = None
+    taxable_value:         float | None = None
+    gst_rate:              float | None = None
+    gst_amount:            float | None = None
+    irn:                   str | None = None
+    # Normalized / legacy names (populated by mode="before")
+    invoice_number:        str | None = None
+    supplier_gstin:        str | None = None
     gstr1_taxable_value:   float | None = None
     pr_taxable_value:      float | None = None
     cgst:                  float = 0.0
     sgst:                  float = 0.0
     igst:                  float = 0.0
-    total_value:           float
     source_type:           SourceType = SourceType.GSTR1
     confidence_score:      float | None = Field(default=None, ge=0.0, le=1.0)
-    # Relationship FK columns (present in Excel, not stored as node properties)
     gstr1_return_id:       str | None = None
     gstr2b_return_id:      str | None = None
     amends_invoice_id:     str | None = None
-    # Generator ground-truth (used for ML training, not written to graph)
     anomaly_type:          AnomalyType | None = AnomalyType.NONE
 
-    @model_validator(mode="after")
-    def at_least_one_taxable_value(self) -> "InvoiceIngestionRow":
-        if self.gstr1_taxable_value is None and self.pr_taxable_value is None:
-            raise ValueError(
-                "At least one of gstr1_taxable_value or pr_taxable_value must be provided"
-            )
-        return self
+    @model_validator(mode="before")
+    @classmethod
+    def _normalize(cls, data: Any) -> Any:
+        if isinstance(data, dict):
+            d = dict(data)
+            # invoice_no → invoice_number
+            if not d.get("invoice_number") and d.get("invoice_no"):
+                d["invoice_number"] = d["invoice_no"]
+            # seller_gstin → supplier_gstin
+            if not d.get("supplier_gstin") and d.get("seller_gstin"):
+                d["supplier_gstin"] = d["seller_gstin"]
+            # taxable_value → gstr1_taxable_value
+            if not d.get("gstr1_taxable_value") and d.get("taxable_value"):
+                d["gstr1_taxable_value"] = d["taxable_value"]
+            # gst_amount → igst (no CGST/SGST split in generator)
+            if d.get("gst_amount") and float(d.get("igst") or 0) == 0.0:
+                d["igst"] = d["gst_amount"]
+            return d
+        return data
 
 
 class GSTR1IngestionRow(BaseModel):
-    """One row from gstr1.xlsx."""
-    return_id:   str
-    gstin:       str
-    tax_period:  str          # MMYYYY
-    filing_date: str          # DD-MM-YYYY
-    status:      FilingStatus = FilingStatus.FILED
+    """One row from gstr1.xlsx (generator schema)."""
+    return_id:          str
+    gstin:              str
+    period:             str          # YYYY-MM (generator) or MMYYYY (legacy)
+    filing_date:        str
+    status:             FilingStatus = FilingStatus.FILED
+    total_outward_tax:  float = 0.0
+
+    @model_validator(mode="before")
+    @classmethod
+    def _normalize(cls, data: Any) -> Any:
+        if isinstance(data, dict):
+            d = dict(data)
+            # Accept legacy "tax_period" field name
+            if not d.get("period") and d.get("tax_period"):
+                d["period"] = d["tax_period"]
+            return d
+        return data
 
 
 class GSTR2BIngestionRow(BaseModel):
-    """One row from gstr2b.xlsx."""
-    return_id:       str
-    gstin:           str
-    tax_period:      str      # MMYYYY
-    generation_date: str      # DD-MM-YYYY
+    """One row from gstr2b.xlsx (generator schema)."""
+    return_id:             str
+    gstin:                 str
+    period:                str      # YYYY-MM
+    generated_date:        str
+    total_itc_available:   float = 0.0
+
+    @model_validator(mode="before")
+    @classmethod
+    def _normalize(cls, data: Any) -> Any:
+        if isinstance(data, dict):
+            d = dict(data)
+            if not d.get("period") and d.get("tax_period"):
+                d["period"] = d["tax_period"]
+            # generation_date → generated_date
+            if not d.get("generated_date") and d.get("generation_date"):
+                d["generated_date"] = d["generation_date"]
+            return d
+        return data
 
 
 class GSTR3BIngestionRow(BaseModel):
-    """One row from gstr3b.xlsx."""
-    return_id:   str
-    gstin:       str
-    tax_period:  str          # MMYYYY
-    filing_date: str          # DD-MM-YYYY
-    tax_payable: float = 0.0
-    tax_paid:    float = 0.0
+    """One row from gstr3b.xlsx (generator schema)."""
+    return_id:    str
+    gstin:        str
+    period:       str          # YYYY-MM
+    filing_date:  str
+    output_tax:   float = 0.0
+    itc_claimed:  float = 0.0
+    tax_paid:     float = 0.0
+
+    @model_validator(mode="before")
+    @classmethod
+    def _normalize(cls, data: Any) -> Any:
+        if isinstance(data, dict):
+            d = dict(data)
+            if not d.get("period") and d.get("tax_period"):
+                d["period"] = d["tax_period"]
+            # tax_payable → output_tax
+            if not d.get("output_tax") and d.get("tax_payable"):
+                d["output_tax"] = d["tax_payable"]
+            return d
+        return data
 
 
 class TaxPaymentIngestionRow(BaseModel):
-    """One row from tax_payments.xlsx."""
-    payment_id:       str
-    amount_paid:      float = Field(ge=0.0)
-    payment_date:     str               # DD-MM-YYYY
-    payment_mode:     PaymentMode
-    # Relationship FK columns (not stored as node properties)
+    """One row from tax_payments.xlsx (generator schema)."""
+    payment_id:    str
+    payment_date:  str
+    # Generator field names
+    amount:        float = Field(default=0.0, ge=0.0)
+    mode:          str | None = None
+    gstin:         str | None = None
+    period:        str | None = None
+    # Normalized names (populated by mode="before")
+    amount_paid:      float | None = None
+    payment_mode:     PaymentMode | None = None
+    # Relationship FKs
     invoice_id:       str | None = None
     gstr3b_return_id: str | None = None
+
+    @model_validator(mode="before")
+    @classmethod
+    def _normalize(cls, data: Any) -> Any:
+        if isinstance(data, dict):
+            d = dict(data)
+            # amount → amount_paid
+            if not d.get("amount_paid") and d.get("amount"):
+                d["amount_paid"] = d["amount"]
+            # mode → payment_mode (normalize strings to PaymentMode enum values)
+            if not d.get("payment_mode") and d.get("mode"):
+                raw = str(d["mode"]).strip().upper()
+                _mode_map = {
+                    "NETBANKING": "OTHER",
+                    "NEFT":       "NEFT",
+                    "RTGS":       "RTGS",
+                    "IMPS":       "IMPS",
+                    "CHALLAN":    "CHALLAN",
+                    "ITC":        "ITC",
+                    "CASH":       "CASH",
+                }
+                d["payment_mode"] = _mode_map.get(raw, "OTHER")
+            # amount_paid fallback
+            if not d.get("amount_paid"):
+                d["amount_paid"] = d.get("amount", 0.0)
+            return d
+        return data
 
 
 # =============================================================================

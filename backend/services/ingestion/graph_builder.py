@@ -51,19 +51,31 @@ def upsert_taxpayer(row: TaxpayerIngestionRow) -> None:
     cypher = """
     MERGE (t:Taxpayer {gstin: $gstin})
     SET t += {
-        pan:                 $pan,
+        legal_name:          $legal_name,
+        trade_name:          $trade_name,
+        state:               $state,
         state_code:          $state_code,
-        country_code:        $country_code,
+        registration_date:   $registration_date,
         registration_status: $registration_status,
+        taxpayer_type:       $taxpayer_type,
+        risk_score:          $risk_score,
+        pan:                 $pan,
+        country_code:        $country_code,
         filing_frequency:    $filing_frequency
     }
     """
     run_write_query(cypher, {
         "gstin":               row.gstin,
-        "pan":                 row.pan,
+        "legal_name":          row.legal_name,
+        "trade_name":          row.trade_name,
+        "state":               row.state,
         "state_code":          row.state_code,
-        "country_code":        row.country_code,
+        "registration_date":   row.registration_date,
         "registration_status": row.registration_status,
+        "taxpayer_type":       row.taxpayer_type,
+        "risk_score":          row.risk_score,
+        "pan":                 row.pan,
+        "country_code":        row.country_code,
         "filing_frequency":    row.filing_frequency,
     })
 
@@ -76,20 +88,32 @@ def upsert_taxpayers_batch(rows: list[TaxpayerIngestionRow]) -> int:
     UNWIND $batch AS r
     MERGE (t:Taxpayer {gstin: r.gstin})
     SET t += {
-        pan:                 r.pan,
+        legal_name:          r.legal_name,
+        trade_name:          r.trade_name,
+        state:               r.state,
         state_code:          r.state_code,
-        country_code:        r.country_code,
+        registration_date:   r.registration_date,
         registration_status: r.registration_status,
+        taxpayer_type:       r.taxpayer_type,
+        risk_score:          r.risk_score,
+        pan:                 r.pan,
+        country_code:        r.country_code,
         filing_frequency:    r.filing_frequency
     }
     """
     batch = [
         {
             "gstin":               r.gstin,
-            "pan":                 r.pan,
+            "legal_name":          r.legal_name,
+            "trade_name":          r.trade_name,
+            "state":               r.state,
             "state_code":          r.state_code,
-            "country_code":        r.country_code,
+            "registration_date":   r.registration_date,
             "registration_status": r.registration_status,
+            "taxpayer_type":       r.taxpayer_type,
+            "risk_score":          r.risk_score,
+            "pan":                 r.pan,
+            "country_code":        r.country_code,
             "filing_frequency":    r.filing_frequency,
         }
         for r in rows
@@ -118,17 +142,22 @@ def upsert_invoices_batch(rows: list[InvoiceIngestionRow]) -> int:
     UNWIND $batch AS r
     MERGE (i:Invoice {invoice_id: r.invoice_id})
     SET i += {
+        invoice_no:           r.invoice_no,
         invoice_number:       r.invoice_number,
         invoice_date:         r.invoice_date,
+        seller_gstin:         r.seller_gstin,
         supplier_gstin:       r.supplier_gstin,
         buyer_gstin:          r.buyer_gstin,
+        taxable_value:        r.taxable_value,
+        gst_amount:           r.gst_amount,
+        gst_rate:             r.gst_rate,
         gstr1_taxable_value:  r.gstr1_taxable_value,
         pr_taxable_value:     r.pr_taxable_value,
-        taxable_value:        r.taxable_value,
         cgst:                 r.cgst,
         sgst:                 r.sgst,
         igst:                 r.igst,
         total_value:          r.total_value,
+        irn:                  r.irn,
         source_type:          r.source_type,
         confidence_score:     r.confidence_score,
         anomaly_type:         r.anomaly_type
@@ -138,9 +167,9 @@ def upsert_invoices_batch(rows: list[InvoiceIngestionRow]) -> int:
     # ── Relationships: ISSUED_BY, RECEIVED_BY ────────────────────────────
     rel_tp_cypher = """
     UNWIND $batch AS r
-    MATCH (i:Invoice  {invoice_id:  r.invoice_id})
-    MATCH (s:Taxpayer {gstin:       r.supplier_gstin})
-    MATCH (b:Taxpayer {gstin:       r.buyer_gstin})
+    MATCH (i:Invoice  {invoice_id: r.invoice_id})
+    MATCH (s:Taxpayer {gstin: r.seller_gstin})
+    MATCH (b:Taxpayer {gstin: r.buyer_gstin})
     MERGE (i)-[:ISSUED_BY]->(s)
     MERGE (i)-[:RECEIVED_BY]->(b)
     """
@@ -175,19 +204,22 @@ def upsert_invoices_batch(rows: list[InvoiceIngestionRow]) -> int:
     batch = [
         {
             "invoice_id":           r.invoice_id,
-            "invoice_number":       r.invoice_number,
+            "invoice_no":           r.invoice_no,
+            "invoice_number":       r.invoice_number or r.invoice_no,
             "invoice_date":         r.invoice_date,
-            "supplier_gstin":       r.supplier_gstin,
+            "seller_gstin":         r.seller_gstin or r.supplier_gstin,
+            "supplier_gstin":       r.supplier_gstin or r.seller_gstin,
             "buyer_gstin":          r.buyer_gstin,
+            "taxable_value":        r.taxable_value or r.gstr1_taxable_value,
+            "gst_amount":           r.gst_amount,
+            "gst_rate":             r.gst_rate,
             "gstr1_taxable_value":  r.gstr1_taxable_value,
             "pr_taxable_value":     r.pr_taxable_value,
-            "taxable_value":        determine_authoritative_value(
-                                        r.gstr1_taxable_value, r.pr_taxable_value
-                                    ),
             "cgst":                 r.cgst,
             "sgst":                 r.sgst,
             "igst":                 r.igst,
             "total_value":          r.total_value,
+            "irn":                  r.irn,
             "source_type":          r.source_type.value if r.source_type else None,
             "confidence_score":     r.confidence_score,
             "anomaly_type":         r.anomaly_type.value if r.anomaly_type else None,
@@ -221,10 +253,11 @@ def upsert_gstr1_batch(rows: list[GSTR1IngestionRow]) -> int:
     UNWIND $batch AS r
     MERGE (g:GSTR1 {return_id: r.return_id})
     SET g += {
-        gstin:       r.gstin,
-        tax_period:  r.tax_period,
-        filing_date: r.filing_date,
-        status:      r.status
+        gstin:             r.gstin,
+        period:            r.period,
+        filing_date:       r.filing_date,
+        status:            r.status,
+        total_outward_tax: r.total_outward_tax
     }
     """
 
@@ -237,11 +270,12 @@ def upsert_gstr1_batch(rows: list[GSTR1IngestionRow]) -> int:
 
     batch = [
         {
-            "return_id":   r.return_id,
-            "gstin":       r.gstin,
-            "tax_period":  r.tax_period,
-            "filing_date": r.filing_date,
-            "status":      r.status.value if r.status else None,
+            "return_id":         r.return_id,
+            "gstin":             r.gstin,
+            "period":            r.period,
+            "filing_date":       r.filing_date,
+            "status":            r.status.value if r.status else None,
+            "total_outward_tax": r.total_outward_tax,
         }
         for r in rows
     ]
@@ -265,9 +299,10 @@ def upsert_gstr2b_batch(rows: list[GSTR2BIngestionRow]) -> int:
     UNWIND $batch AS r
     MERGE (g:GSTR2B {return_id: r.return_id})
     SET g += {
-        gstin:           r.gstin,
-        tax_period:      r.tax_period,
-        generation_date: r.generation_date
+        gstin:               r.gstin,
+        period:              r.period,
+        generated_date:      r.generated_date,
+        total_itc_available: r.total_itc_available
     }
     """
 
@@ -280,10 +315,11 @@ def upsert_gstr2b_batch(rows: list[GSTR2BIngestionRow]) -> int:
 
     batch = [
         {
-            "return_id":       r.return_id,
-            "gstin":           r.gstin,
-            "tax_period":      r.tax_period,
-            "generation_date": r.generation_date,
+            "return_id":           r.return_id,
+            "gstin":               r.gstin,
+            "period":              r.period,
+            "generated_date":      r.generated_date,
+            "total_itc_available": r.total_itc_available,
         }
         for r in rows
     ]
@@ -308,9 +344,10 @@ def upsert_gstr3b_batch(rows: list[GSTR3BIngestionRow]) -> int:
     MERGE (g:GSTR3B {return_id: r.return_id})
     SET g += {
         gstin:       r.gstin,
-        tax_period:  r.tax_period,
+        period:      r.period,
         filing_date: r.filing_date,
-        tax_payable: toFloat(r.tax_payable),
+        output_tax:  toFloat(r.output_tax),
+        itc_claimed: toFloat(r.itc_claimed),
         tax_paid:    toFloat(r.tax_paid)
     }
     """
@@ -326,9 +363,10 @@ def upsert_gstr3b_batch(rows: list[GSTR3BIngestionRow]) -> int:
         {
             "return_id":   r.return_id,
             "gstin":       r.gstin,
-            "tax_period":  r.tax_period,
+            "period":      r.period,
             "filing_date": r.filing_date,
-            "tax_payable": r.tax_payable,
+            "output_tax":  r.output_tax,
+            "itc_claimed": r.itc_claimed,
             "tax_paid":    r.tax_paid,
         }
         for r in rows
@@ -357,9 +395,13 @@ def upsert_tax_payments_batch(rows: list[TaxPaymentIngestionRow]) -> int:
     UNWIND $batch AS r
     MERGE (p:TaxPayment {payment_id: r.payment_id})
     SET p += {
-        amount_paid:  toFloat(r.amount_paid),
+        amount:       toFloat(r.amount),
+        amount_paid:  toFloat(r.amount),
         payment_date: r.payment_date,
-        payment_mode: r.payment_mode
+        mode:         r.mode,
+        payment_mode: r.mode,
+        gstin:        r.gstin,
+        period:       r.period
     }
     """
 
@@ -384,9 +426,11 @@ def upsert_tax_payments_batch(rows: list[TaxPaymentIngestionRow]) -> int:
     batch = [
         {
             "payment_id":       r.payment_id,
-            "amount_paid":      r.amount_paid,
+            "amount":           r.amount,
             "payment_date":     r.payment_date,
-            "payment_mode":     r.payment_mode.value if r.payment_mode else None,
+            "mode":             r.payment_mode.value if r.payment_mode else (r.mode or "OTHER"),
+            "gstin":            r.gstin,
+            "period":           r.period,
             "invoice_id":       r.invoice_id,
             "gstr3b_return_id": r.gstr3b_return_id,
         }

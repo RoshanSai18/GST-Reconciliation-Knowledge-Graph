@@ -158,11 +158,17 @@ def reconcile_stats() -> ReconciliationSummary:
         rows  = run_query(_STATS_QUERY)
         total = run_query(_TOTAL_QUERY)
     except Exception as exc:
-        logger.exception("Stats query failed: %s", exc)
-        raise HTTPException(
-            status_code=status.HTTP_502_BAD_GATEWAY,
-            detail=f"Database query failed: {exc}",
-        ) from exc
+        # Neo4j not running — return zero counts so the dashboard still loads
+        logger.warning("Stats query failed (Neo4j unreachable?): %s", exc)
+        return ReconciliationSummary(
+            total=0,
+            valid=0,
+            warning=0,
+            high_risk=0,
+            pending=0,
+            duration_ms=None,
+            run_at=None,
+        )
 
     counts: dict[str, int] = {
         InvoiceStatus.VALID.value:     0,
