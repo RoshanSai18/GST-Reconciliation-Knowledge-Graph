@@ -28,40 +28,17 @@ import time
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, File, HTTPException, UploadFile, status
-from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 
 import config
 from models.schemas import UploadResult
+from routers.auth import require_jwt
 from services.ingestion import graph_builder, parsers
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(tags=["Upload"])
 
-# ---------------------------------------------------------------------------
-# Lightweight auth dependency (replaced by JWT in Phase 10 / routers/auth.py)
-# ---------------------------------------------------------------------------
-
-_bearer = HTTPBearer(auto_error=True)
-
-
-def _verify_token(
-    creds: Annotated[HTTPAuthorizationCredentials, Depends(_bearer)],
-) -> str:
-    """
-    Temporary guard: accepts any bearer token equal to config.JWT_SECRET.
-    Phase 10 replaces this with full JWT decode + user lookup.
-    """
-    if creds.credentials != config.JWT_SECRET:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Invalid or missing token",
-            headers={"WWW-Authenticate": "Bearer"},
-        )
-    return creds.credentials
-
-
-_AuthDep = Annotated[str, Depends(_verify_token)]
+_AuthDep = Annotated[object, Depends(require_jwt)]
 
 # ---------------------------------------------------------------------------
 # Helpers

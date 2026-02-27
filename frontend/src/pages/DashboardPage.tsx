@@ -52,19 +52,19 @@ export default function DashboardPage() {
   const vendorCount    = vendors?.total       ?? gStats?.nodes?.Taxpayer ?? 100
   const highRiskVendors= vendors?.high        ?? 3
 
-  // Bar chart data
+  // Bar chart data — muted professional palette
   const barData = rStats
     ? [
-        { name: 'Valid',     value: rStats.valid,    fill: '#34d399' },
-        { name: 'Warning',   value: rStats.warning,  fill: '#fb923c' },
-        { name: 'High-Risk', value: rStats.high_risk,fill: '#ef4444' },
-        { name: 'Pending',   value: rStats.pending,  fill: '#a3a3a3' },
+        { name: 'Valid',     value: rStats.valid,    fill: '#059669' },
+        { name: 'Warning',   value: rStats.warning,  fill: '#D97706' },
+        { name: 'High-Risk', value: rStats.high_risk,fill: '#B91C1C' },
+        { name: 'Pending',   value: rStats.pending,  fill: '#A1A1AA' },
       ]
     : [
-        { name: 'Valid',     value: 3248, fill: '#34d399' },
-        { name: 'Warning',   value: 850,  fill: '#fb923c' },
-        { name: 'High-Risk', value: 930,  fill: '#ef4444' },
-        { name: 'Pending',   value: 152,  fill: '#a3a3a3' },
+        { name: 'Valid',     value: 3248, fill: '#059669' },
+        { name: 'Warning',   value: 850,  fill: '#D97706' },
+        { name: 'High-Risk', value: 930,  fill: '#B91C1C' },
+        { name: 'Pending',   value: 152,  fill: '#A1A1AA' },
       ]
 
   // Pie chart data from graph node counts
@@ -77,7 +77,7 @@ export default function DashboardPage() {
         { name: 'GSTR3B',      value: 600  },
         { name: 'Taxpayer',    value: 100  },
       ]
-  const PIE_COLORS = ['#64748b','#34d399','#fb923c','#ef4444','#a3e635','#fbbf24']
+  const PIE_COLORS = ['#4F46E5','#059669','#D97706','#B91C1C','#65A30D','#CA8A04']
 
   return (
     <div className="space-y-6 animate-fade-in">
@@ -119,8 +119,8 @@ export default function DashboardPage() {
       <div className="grid grid-cols-1 xl:grid-cols-[1fr_380px] gap-6" style={{ minHeight: '480px' }}>
 
         {/* LEFT — Graph Explorer */}
-        <div className="bg-surface border border-border rounded-xl overflow-hidden flex flex-col">
-          <div className="flex items-center justify-between px-5 py-3.5 border-b border-border">
+        <div className="bg-surface rounded-2xl overflow-hidden flex flex-col shadow-card">
+          <div className="flex items-center justify-between px-5 py-3.5" style={{ borderBottom: '1px solid #F4F4F5' }}>
             <div>
               <h2 className="text-sm font-semibold text-foreground">Real-Time Supply Chain Traversal</h2>
               <p className="text-xs text-muted mt-0.5">Click a node to inspect in the Risk Profile panel →</p>
@@ -135,34 +135,34 @@ export default function DashboardPage() {
           </div>
 
           {/* Bottom bar charts row */}
-          <div className="border-t border-border px-5 py-4 grid grid-cols-2 gap-6">
+          <div className="px-5 py-4 grid grid-cols-2 gap-6" style={{ borderTop: '1px solid #F4F4F5' }}>
             <div>
-              <p className="text-xs font-medium text-muted mb-2">Invoice Status Distribution</p>
+              <p className="label-cap mb-2">Invoice Status Distribution</p>
               <ResponsiveContainer width="100%" height={100}>
-                <BarChart data={barData} barSize={18}>
-                  <XAxis dataKey="name" tick={{ fill: '#525252', fontSize: 10 }} axisLine={false} tickLine={false} />
+                <BarChart data={barData} barSize={16} margin={{ top: 2, right: 0, bottom: 0, left: 0 }}>
+                  <XAxis dataKey="name" tick={{ fill: '#A1A1AA', fontSize: 10 }} axisLine={false} tickLine={false} />
                   <YAxis hide />
                   <Tooltip
-                    contentStyle={{ background: '#ffffff', border: '1px solid #d4d4d4', borderRadius: 8, fontSize: 12, color: '#0a0a0a' }}
-                    cursor={{ fill: 'rgba(0,0,0,0.04)' }}
+                    contentStyle={{ background: '#FFFFFF', border: 'none', borderRadius: 10, fontSize: 12, color: '#18181B', boxShadow: '0 4px 16px rgba(0,0,0,0.10)' }}
+                    cursor={{ fill: 'rgba(0,0,0,0.03)' }}
                   />
-                  <Bar dataKey="value" radius={[4,4,0,0]}>
+                  <Bar dataKey="value" radius={[5,5,0,0]}>
                     {barData.map((d, i) => <Cell key={i} fill={d.fill} />)}
                   </Bar>
                 </BarChart>
               </ResponsiveContainer>
             </div>
             <div>
-              <p className="text-xs font-medium text-muted mb-2">Graph Node Distribution</p>
+              <p className="label-cap mb-2">Graph Node Distribution</p>
               <ResponsiveContainer width="100%" height={100}>
                 <PieChart>
-                  <Pie data={pieData} cx="50%" cy="50%" innerRadius={28} outerRadius={44} dataKey="value" paddingAngle={3}>
+                  <Pie data={pieData} cx="50%" cy="50%" innerRadius={26} outerRadius={42} dataKey="value" paddingAngle={4}>
                     {pieData.map((_, i) => (
                       <Cell key={i} fill={PIE_COLORS[i % PIE_COLORS.length]} />
                     ))}
                   </Pie>
                   <Tooltip
-                    contentStyle={{ background: '#ffffff', border: '1px solid #d4d4d4', borderRadius: 8, fontSize: 12, color: '#0a0a0a' }}
+                    contentStyle={{ background: '#FFFFFF', border: 'none', borderRadius: 10, fontSize: 12, color: '#18181B', boxShadow: '0 4px 16px rgba(0,0,0,0.10)' }}
                   />
                 </PieChart>
               </ResponsiveContainer>
@@ -179,12 +179,12 @@ export default function DashboardPage() {
 
 // ── Graph SVG mock (per mega-prompt spec) ─────────────────────────────────────
 const NODES = [
-  { id: 'your_co',  x: 320, y: 200, label: 'Your Company',   sub: 'GSTIN: 27AADCB1001A1Z1', color: '#64748b', r: 38 },
-  { id: 'vendor_a', x: 120, y: 100, label: 'Vendor A',        sub: 'GSTIN: 29AADCA1001B1Z2', color: '#34d399', r: 30 },
-  { id: 'vendor_b', x: 120, y: 300, label: 'Vendor B',        sub: 'GSTIN: 07AADCB3201C1Z3', color: '#34d399', r: 30 },
-  { id: 'vendor_c', x: 530, y: 200, label: 'Vendor C',        sub: '27AADCB2230M1Z2',        color: '#ef4444', r: 30 },
-  { id: 'inv_992',  x: 680, y: 120, label: 'Invoice #992',    sub: '₹4,20,000',               color: '#ef4444', r: 24 },
-  { id: 'eway',     x: 800, y: 220, label: 'e-Way Bill',      sub: 'NOT FOUND',               color: '#ef4444', r: 22 },
+  { id: 'your_co',  x: 320, y: 200, label: 'Your Company',   sub: 'GSTIN: 27AADCB1001A1Z1', color: '#4F46E5', r: 38 },
+  { id: 'vendor_a', x: 120, y: 100, label: 'Vendor A',        sub: 'GSTIN: 29AADCA1001B1Z2', color: '#059669', r: 30 },
+  { id: 'vendor_b', x: 120, y: 300, label: 'Vendor B',        sub: 'GSTIN: 07AADCB3201C1Z3', color: '#059669', r: 30 },
+  { id: 'vendor_c', x: 530, y: 200, label: 'Vendor C',        sub: '27AADCB2230M1Z2',        color: '#B91C1C', r: 30 },
+  { id: 'inv_992',  x: 680, y: 120, label: 'Invoice #992',    sub: '₹4,20,000',               color: '#B91C1C', r: 24 },
+  { id: 'eway',     x: 800, y: 220, label: 'e-Way Bill',      sub: 'NOT FOUND',               color: '#B91C1C', r: 22 },
 ]
 const EDGES = [
   { s: 'your_co', t: 'vendor_a', alert: false },
@@ -193,16 +193,17 @@ const EDGES = [
   { s: 'vendor_c', t: 'inv_992', alert: true  },
   { s: 'inv_992',  t: 'eway',    alert: true  },
 ]
+// alert edge color updated to muted danger
 
 function GraphSvg({ onSelect, selected }: { onSelect: (s: string | null) => void; selected: string | null }) {
   return (
     <svg viewBox="0 0 950 380" className="w-full max-w-2xl" style={{ maxHeight: 300 }}>
       <defs>
         <marker id="arr_n"  markerWidth="8" markerHeight="8" refX="6" refY="3" orient="auto">
-          <path d="M0,0 L8,3 L0,6 Z" fill="#a3a3a3" />
+          <path d="M0,0 L8,3 L0,6 Z" fill="#D4D4D8" />
         </marker>
         <marker id="arr_r"  markerWidth="8" markerHeight="8" refX="6" refY="3" orient="auto">
-          <path d="M0,0 L8,3 L0,6 Z" fill="#ef4444" />
+          <path d="M0,0 L8,3 L0,6 Z" fill="#B91C1C" />
         </marker>
         <filter id="glow_r">
           <feGaussianBlur stdDeviation="3" result="blur" />
@@ -218,7 +219,7 @@ function GraphSvg({ onSelect, selected }: { onSelect: (s: string | null) => void
           <line
             key={i}
             x1={s.x} y1={s.y} x2={t.x} y2={t.y}
-            stroke={e.alert ? '#ef4444' : '#c0c0c0'}
+            stroke={e.alert ? '#B91C1C' : '#D4D4D8'}
             strokeWidth={e.alert ? 2.5 : 1.5}
             strokeDasharray={e.alert ? '8 4' : undefined}
             markerEnd={e.alert ? 'url(#arr_r)' : 'url(#arr_n)'}
@@ -277,10 +278,10 @@ function RiskSidebar({ selected }: { selected: string | null; loading: boolean }
   const isVendorC = selected === 'Vendor C' || !selected
 
   return (
-    <div className="bg-surface border border-border rounded-xl flex flex-col overflow-hidden animate-slide-in">
+    <div className="bg-surface rounded-2xl flex flex-col overflow-hidden animate-slide-in shadow-card">
       {/* Header */}
-      <div className="px-5 py-4 border-b border-border">
-        <p className="text-xs text-muted font-medium uppercase tracking-widest">Risk Profile</p>
+      <div className="px-5 py-4" style={{ borderBottom: '1px solid #F4F4F5' }}>
+        <p className="label-cap">Risk Profile</p>
         <h3 className="text-sm font-bold text-foreground mt-1">
           {isVendorC ? 'Vendor C' : selected}
         </h3>
@@ -296,7 +297,7 @@ function RiskSidebar({ selected }: { selected: string | null; loading: boolean }
         </div>
 
         {/* AI Audit trail */}
-        <div className="bg-danger/8 border border-danger/25 rounded-lg p-3.5">
+        <div className="bg-danger-lt rounded-xl p-3.5">
           <div className="flex items-center gap-2 mb-2">
             <Zap size={13} className="text-danger flex-shrink-0" />
             <span className="text-xs font-semibold text-danger">AI Audit Finding</span>
@@ -309,8 +310,8 @@ function RiskSidebar({ selected }: { selected: string | null; loading: boolean }
         </div>
 
         {/* Financial impact */}
-        <div className="bg-bg rounded-lg border border-border p-3.5">
-          <p className="text-xs text-muted mb-2.5 font-medium">Financial Impact</p>
+        <div className="bg-bg rounded-xl p-3.5">
+          <p className="label-cap mb-2.5">Financial Impact</p>
           <div className="grid grid-cols-2 gap-3">
             <div>
               <p className="text-lg font-bold text-danger">₹4,20,000</p>
@@ -342,7 +343,7 @@ function RiskSidebar({ selected }: { selected: string | null; loading: boolean }
       </div>
 
       {/* Action buttons */}
-      <div className="px-5 pb-5 pt-3 border-t border-border space-y-2.5">
+      <div className="px-5 pb-5 pt-3 space-y-2.5" style={{ borderTop: '1px solid #F4F4F5' }}>
         <button
           onClick={handleResolve}
           disabled={resolving || resolved}

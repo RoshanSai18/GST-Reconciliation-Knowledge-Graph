@@ -175,6 +175,87 @@ def taxpayer_subgraph(
 
 
 # ---------------------------------------------------------------------------
+# GET /graph/overview
+# ---------------------------------------------------------------------------
+
+_OVERVIEW_QUERY = """
+MATCH (t:Taxpayer)
+WITH t ORDER BY t.gstin LIMIT $limit
+OPTIONAL MATCH (i:Invoice)-[:ISSUED_BY]->(t)
+WITH t, collect(i)[0..5] AS invoices
+RETURN t, invoices
+"""
+
+_OVERVIEW_GSTR_QUERY = """
+MATCH (g:GSTR1)-[:FILED_BY]->(t:Taxpayer {gstin: $gstin})
+RETURN collect(g)[0..3] AS gstr1s
+"""
+
+_OVERVIEW_PAYMENT_QUERY = """
+MATCH (p:TaxPayment)-[:SETTLED_IN]->(g:GSTR3B)-[:FILED_BY]->(t:Taxpayer {gstin: $gstin})
+RETURN collect(p)[0..3] AS payments
+"""
+
+
+@router.get(
+    "/overview",
+    summary="Full Graph Overview",
+    response_model=GraphExport,
+)
+def graph_overview(
+    limit: int = Query(30, ge=5, le=100, description="Max taxpayer nodes to include"),
+) -> GraphExport:
+    """Return a sampled overview of the full knowledge graph (up to `limit` taxpayers + their data)."""
+    try:
+        rows = run_query(_OVERVIEW_QUERY, {"limit": limit})
+    except Exception as exc:
+        logger.error("Overview query failed: %s", exc)
+        raise HTTPException(status_code=500, detail="Database query failed")
+
+    nodes: list[GraphNode] = []
+    edges: list[GraphEdge] = []
+    seen_nodes: set[str] = set()
+    seen_edges: set[str] = set()
+
+    def _add_node(nid: str, label: str, props: dict, risk=None) -> None:
+        if nid and nid not in seen_nodes:
+            seen_nodes.add(nid)
+            nodes.append(GraphNode(id=nid, label=label, properties=props, risk_level=risk))
+
+    def _add_edge(src: str, tgt: str, rel: str) -> None:
+        eid = _edge_id(src, tgt, rel)
+        if src and tgt and eid not in seen_edges:
+            seen_edges.add(eid)
+            edges.append(GraphEdge(id=eid, source=src, target=tgt, label=rel, properties={}))
+
+    for row in (rows or []):
+        # Taxpayer node
+        tp = dict(row["t"])
+        gstin = tp.get("gstin")
+        if not gstin:
+            continue
+        _add_node(gstin, "Taxpayer", tp, _risk(tp.get("risk_level")))
+
+        # Invoice nodes + edges
+        for inv_node in (row.get("invoices") or []):
+            if not inv_node:
+                continue
+            inv = dict(inv_node)
+            iid = inv.get("invoice_id")
+            if not iid:
+                continue
+            _add_node(iid, "Invoice", inv, _risk(inv.get("risk_level")))
+            _add_edge(iid, gstin, "ISSUED_BY")
+
+            # Buyer link (if buyer already added as a taxpayer node)
+            buyer = inv.get("buyer_gstin")
+            if buyer and buyer in seen_nodes:
+                _add_edge(iid, buyer, "RECEIVED_BY")
+
+    return GraphExport(nodes=nodes, edges=edges)
+
+
+# ---------------------------------------------------------------------------
 # GET /graph/stats
 # ---------------------------------------------------------------------------
 

@@ -3,80 +3,106 @@
 @tailwind utilities;
 
 @layer base {
-  * {
-    box-sizing: border-box;
-  }
+  * { box-sizing: border-box; }
 
   body {
-    background-color: #f5f5f5;
-    color: #0a0a0a;
+    background-color: #F4F4F5;   /* zinc-100 */
+    color: #18181B;               /* zinc-900 */
     font-family: 'Inter', system-ui, sans-serif;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
   }
 
-  ::-webkit-scrollbar {
-    width: 6px;
-    height: 6px;
+  /* ── Minimal scrollbar ──────────────────────────────────────────────────── */
+  ::-webkit-scrollbar          { width: 5px; height: 5px; }
+  ::-webkit-scrollbar-track    { background: transparent; }
+  ::-webkit-scrollbar-thumb    { background: #D4D4D8; border-radius: 99px; }
+  ::-webkit-scrollbar-thumb:hover { background: #A1A1AA; }
+
+  /* ── Label cap style ─────────────────────────────────────────────────────── */
+  .label-cap {
+    font-size: 0.65rem;
+    font-weight: 600;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: #71717A;
   }
-  ::-webkit-scrollbar-track {
-    background: #f5f5f5;
-  }
-  ::-webkit-scrollbar-thumb {
-    background: #d4d4d4;
-    border-radius: 3px;
-  }
-  ::-webkit-scrollbar-thumb:hover {
-    background: #a3a3a3;
+
+  /* ── Metric number style ─────────────────────────────────────────────────── */
+  .metric-num {
+    font-size: 1.75rem;
+    font-weight: 800;
+    line-height: 1;
+    letter-spacing: -0.02em;
   }
 }
 
 @layer components {
-  /* Shadcn-style card */
+  /* ── Borderless card (shadow-only depth) ─────────────────────────────────── */
   .card {
-    background: #ffffff;
-    border: 1px solid #d4d4d4;
-    border-radius: 0.75rem;
-    box-shadow: 0 1px 3px 0 rgba(0,0,0,0.07), 0 1px 2px -1px rgba(0,0,0,0.05);
+    background: #FFFFFF;
+    border-radius: 0.875rem;
+    box-shadow: 0 1px 3px 0 rgba(0,0,0,0.04), 0 1px 2px -1px rgba(0,0,0,0.03);
   }
   .card-header {
     padding: 1rem 1.25rem;
-    border-bottom: 1px solid #d4d4d4;
+    border-bottom: 1px solid #F4F4F5;
   }
-  .card-body {
-    padding: 1.25rem;
-  }
+  .card-body { padding: 1.25rem; }
 
-  /* Canvas dotted grid pattern for the graph explorer */
+  /* ── Graph explorer canvas ───────────────────────────────────────────────── */
   .graph-canvas {
-    background-color: #fafafa;
-    background-image: radial-gradient(circle, #d4d4d4 1px, transparent 1px);
+    background-color: #FAFAFA;
+    background-image: radial-gradient(circle, #E4E4E7 1px, transparent 1px);
     background-size: 28px 28px;
   }
 
-  /* Animated glowing ring for alerts */
-  .pulse-ring {
-    position: relative;
+  /* ── Shimmer skeleton ────────────────────────────────────────────────────── */
+  .skeleton {
+    background: linear-gradient(
+      90deg,
+      #F4F4F5 0px,
+      #E4E4E7 40%,
+      #F4F4F5 80%
+    );
+    background-size: 600px 100%;
+    animation: shimmer 1.6s linear infinite;
+    border-radius: 0.5rem;
   }
+
+  /* ── Alert pulse ring ────────────────────────────────────────────────────── */
+  .pulse-ring { position: relative; }
   .pulse-ring::after {
     content: '';
     position: absolute;
     inset: -4px;
     border-radius: 50%;
-    border: 2px solid #ef4444;
+    border: 2px solid #B91C1C;
     animation: ping 1.5s cubic-bezier(0, 0, 0.2, 1) infinite;
     opacity: 0;
   }
 
-  /* Graph edge path animation */
+  /* ── Graph edge animation ────────────────────────────────────────────────── */
   .edge-alert {
     stroke-dasharray: 8 4;
     animation: dash 1s linear infinite;
   }
+  @keyframes dash { to { stroke-dashoffset: -12; } }
 
-  @keyframes dash {
-    to { stroke-dashoffset: -12; }
+  /* ── Table row hover (lift + shadow) ─────────────────────────────────────── */
+  .tr-hover {
+    transition: box-shadow 0.18s ease, background 0.18s ease, transform 0.18s ease;
+    cursor: pointer;
+  }
+  .tr-hover:hover {
+    background: #FAFAFA;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.05);
+    position: relative;
+    z-index: 1;
+    transform: translateY(-1px);
   }
 
-  /* Circular progress gauge */
+  /* ── Circular progress gauge ──────────────────────────────────────────────── */
   .gauge-circle {
     transform: rotate(-90deg);
     transform-origin: 50% 50%;

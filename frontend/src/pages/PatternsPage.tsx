@@ -40,13 +40,15 @@ export default function PatternsPage() {
   return (
     <div className="space-y-4 animate-fade-in">
       {/* Tabs */}
-      <div className="flex gap-1 bg-surface border border-border rounded-xl p-1 w-fit">
+      <div className="flex gap-1 bg-surface rounded-2xl p-1 w-fit shadow-card">
         {TABS.map(t => (
           <button
             key={t.id}
             onClick={() => { setTab(t.id); setData([]); setRan(false) }}
-            className={`flex items-center gap-2 text-sm px-4 py-2 rounded-lg transition-all ${
-              tab === t.id ? 'bg-accent text-white shadow-glow' : 'text-muted hover:text-foreground'
+            className={`flex items-center gap-2 text-[13px] px-4 py-2 rounded-xl transition-all duration-200 ${
+              tab === t.id
+                ? 'bg-accent text-white shadow-glow font-semibold'
+                : 'text-muted hover:text-foreground hover:bg-bg'
             }`}
           >
             {t.icon} {t.label}
@@ -58,16 +60,20 @@ export default function PatternsPage() {
       <button
         onClick={runDetection}
         disabled={loading}
-        className="flex items-center gap-2 bg-surface border border-border hover:border-accent/50 text-sm font-medium px-4 py-2 rounded-lg transition-all"
+        className="flex items-center gap-2 bg-accent hover:bg-accent-h disabled:opacity-50 text-white text-[13px] font-semibold px-5 py-2.5 rounded-xl transition-all shadow-glow"
       >
-        <Play size={13} className={loading ? 'animate-spin text-accent' : 'text-accent'} />
+        <Play size={13} className={loading ? 'animate-spin' : ''} />
         {loading ? 'Detecting…' : 'Run Detection'}
       </button>
 
       {/* Results */}
       {ran && data.length === 0 && (
-        <div className="bg-surface border border-border rounded-xl p-12 text-center text-muted">
-          No patterns detected for this category. Run more data ingestion and reconciliation first.
+        <div className="bg-surface rounded-2xl shadow-card p-16 text-center">
+          <div className="w-10 h-10 mx-auto mb-3 rounded-xl bg-bg flex items-center justify-center">
+            <AlertTriangle size={18} className="text-subtle" />
+          </div>
+          <p className="text-muted text-[13px]">No patterns detected for this category.</p>
+          <p className="text-subtle text-xs mt-1">Run more data ingestion and reconciliation first.</p>
         </div>
       )}
 
@@ -83,19 +89,19 @@ export default function PatternsPage() {
 
 function CircularTable({ rows }: { rows: CircularPattern[] }) {
   return (
-    <div className="bg-surface border border-border rounded-xl overflow-hidden">
+    <div className="bg-surface rounded-2xl overflow-hidden shadow-card">
       <table className="w-full text-sm">
         <thead>
-          <tr className="border-b border-border text-xs text-muted">
-            <th className="text-left px-4 py-3 font-medium">Cycle ID</th>
-            <th className="text-left px-4 py-3 font-medium">GSTINs Involved</th>
-            <th className="text-left px-4 py-3 font-medium">Period</th>
-            <th className="text-left px-4 py-3 font-medium">Risk</th>
+          <tr className="text-xs" style={{ borderBottom: '1px solid #F4F4F5' }}>
+            <th className="text-left px-4 py-3 label-cap">Cycle ID</th>
+            <th className="text-left px-4 py-3 label-cap">GSTINs Involved</th>
+            <th className="text-left px-4 py-3 label-cap">Period</th>
+            <th className="text-left px-4 py-3 label-cap">Risk</th>
           </tr>
         </thead>
         <tbody>
           {rows.map(r => (
-            <tr key={r.cycle_id} className="border-b border-border/60 hover:bg-white/[0.03]">
+            <tr key={r.cycle_id} className="tr-hover" style={{ borderBottom: '1px solid #F4F4F5' }}>
               <td className="px-4 py-3 font-mono text-xs text-danger">{r.cycle_id}</td>
               <td className="px-4 py-3 text-xs text-muted max-w-xs truncate">{r.involved_gstins.join(' → ')}</td>
               <td className="px-4 py-3 text-xs text-muted">{r.period}</td>
@@ -110,23 +116,23 @@ function CircularTable({ rows }: { rows: CircularPattern[] }) {
 
 function DelaysTable({ rows }: { rows: DelayPattern[] }) {
   return (
-    <div className="bg-surface border border-border rounded-xl overflow-hidden">
+    <div className="bg-surface rounded-2xl overflow-hidden shadow-card">
       <table className="w-full text-sm">
         <thead>
-          <tr className="border-b border-border text-xs text-muted">
-            <th className="text-left px-4 py-3 font-medium">GSTIN</th>
-            <th className="text-right px-4 py-3 font-medium">Avg Delay</th>
-            <th className="text-right px-4 py-3 font-medium">Max Delay</th>
-            <th className="text-right px-4 py-3 font-medium">Affected Invoices</th>
+          <tr className="text-xs" style={{ borderBottom: '1px solid #F4F4F5' }}>
+            <th className="text-left px-4 py-3 label-cap">GSTIN</th>
+            <th className="text-right px-4 py-3 label-cap">Avg Delay</th>
+            <th className="text-right px-4 py-3 label-cap">Max Delay</th>
+            <th className="text-right px-4 py-3 label-cap">Affected Invoices</th>
           </tr>
         </thead>
         <tbody>
           {rows.map(r => (
-            <tr key={r.gstin} className="border-b border-border/60 hover:bg-white/[0.03]">
+            <tr key={r.gstin} className="tr-hover" style={{ borderBottom: '1px solid #F4F4F5' }}>
               <td className="px-4 py-3 font-mono text-xs text-accent">{r.gstin}</td>
-              <td className="px-4 py-3 text-right"><span className={`font-medium ${r.avg_delay_days > 30 ? 'text-danger' : 'text-warning'}`}>{r.avg_delay_days.toFixed(1)}d</span></td>
-              <td className="px-4 py-3 text-right text-muted">{r.max_delay_days}d</td>
-              <td className="px-4 py-3 text-right text-muted">{r.affected_invoice_count}</td>
+              <td className="px-4 py-3 text-right"><span className={`font-semibold text-xs ${r.avg_delay_days > 30 ? 'text-danger' : 'text-warning'}`}>{r.avg_delay_days.toFixed(1)}d</span></td>
+              <td className="px-4 py-3 text-right text-muted text-xs">{r.max_delay_days}d</td>
+              <td className="px-4 py-3 text-right text-muted text-xs">{r.affected_invoice_count}</td>
             </tr>
           ))}
         </tbody>
@@ -137,20 +143,20 @@ function DelaysTable({ rows }: { rows: DelayPattern[] }) {
 
 function AmendmentsTable({ rows }: { rows: AmendPattern[] }) {
   return (
-    <div className="bg-surface border border-border rounded-xl overflow-hidden">
+    <div className="bg-surface rounded-2xl overflow-hidden shadow-card">
       <table className="w-full text-sm">
         <thead>
-          <tr className="border-b border-border text-xs text-muted">
-            <th className="text-left px-4 py-3 font-medium">GSTIN</th>
-            <th className="text-right px-4 py-3 font-medium">Amendment Chains</th>
-            <th className="text-right px-4 py-3 font-medium">Max Chain Depth</th>
+          <tr className="text-xs" style={{ borderBottom: '1px solid #F4F4F5' }}>
+            <th className="text-left px-4 py-3 label-cap">GSTIN</th>
+            <th className="text-right px-4 py-3 label-cap">Amendment Chains</th>
+            <th className="text-right px-4 py-3 label-cap">Max Chain Depth</th>
           </tr>
         </thead>
         <tbody>
           {rows.map(r => (
-            <tr key={r.gstin} className="border-b border-border/60 hover:bg-white/[0.03]">
+            <tr key={r.gstin} className="tr-hover" style={{ borderBottom: '1px solid #F4F4F5' }}>
               <td className="px-4 py-3 font-mono text-xs text-accent">{r.gstin}</td>
-              <td className="px-4 py-3 text-right font-medium text-warning">{r.amendment_chains}</td>
+              <td className="px-4 py-3 text-right font-semibold text-warning">{r.amendment_chains}</td>
               <td className="px-4 py-3 text-right text-muted">{r.max_chain_depth}</td>
             </tr>
           ))}
@@ -162,30 +168,30 @@ function AmendmentsTable({ rows }: { rows: AmendPattern[] }) {
 
 function NetworksTable({ rows }: { rows: NetworkPattern[] }) {
   return (
-    <div className="bg-surface border border-border rounded-xl overflow-hidden">
+    <div className="bg-surface rounded-2xl overflow-hidden shadow-card">
       <table className="w-full text-sm">
         <thead>
-          <tr className="border-b border-border text-xs text-muted">
-            <th className="text-left px-4 py-3 font-medium">GSTIN</th>
-            <th className="text-right px-4 py-3 font-medium">Total Partners</th>
-            <th className="text-right px-4 py-3 font-medium">Risky Partners</th>
-            <th className="text-right px-4 py-3 font-medium">Risky Ratio</th>
+          <tr className="text-xs" style={{ borderBottom: '1px solid #F4F4F5' }}>
+            <th className="text-left px-4 py-3 label-cap">GSTIN</th>
+            <th className="text-right px-4 py-3 label-cap">Total Partners</th>
+            <th className="text-right px-4 py-3 label-cap">Risky Partners</th>
+            <th className="text-right px-4 py-3 label-cap">Risky Ratio</th>
           </tr>
         </thead>
         <tbody>
           {rows.map(r => {
             const pct = Math.round(r.risky_partner_ratio * 100)
             return (
-              <tr key={r.gstin} className="border-b border-border/60 hover:bg-white/[0.03]">
+              <tr key={r.gstin} className="tr-hover" style={{ borderBottom: '1px solid #F4F4F5' }}>
                 <td className="px-4 py-3 font-mono text-xs text-accent">{r.gstin}</td>
                 <td className="px-4 py-3 text-right text-muted">{r.total_partners}</td>
-                <td className="px-4 py-3 text-right text-danger font-medium">{r.risky_partners}</td>
+                <td className="px-4 py-3 text-right text-danger font-semibold">{r.risky_partners}</td>
                 <td className="px-4 py-3 text-right">
                   <div className="flex items-center justify-end gap-2">
-                    <div className="w-20 h-1.5 bg-border rounded-full overflow-hidden">
+                    <div className="w-20 h-1.5 bg-bg rounded-full overflow-hidden">
                       <div className="h-full bg-danger rounded-full" style={{ width: `${pct}%` }} />
                     </div>
-                    <span className="text-xs font-mono text-danger">{pct}%</span>
+                    <span className="text-xs font-mono font-semibold text-danger">{pct}%</span>
                   </div>
                 </td>
               </tr>

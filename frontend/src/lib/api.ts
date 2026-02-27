@@ -37,12 +37,57 @@ export const authApi = {
   me: () => api.get<{ username: string; role: string }>('/auth/me'),
 }
 
+// ── Graph format helpers ─────────────────────────────────────────────────
+// Backend returns flat GraphNode {id, label, properties, risk_level}.
+// Frontend expects Cytoscape-style {data: {id, type, label, risk_level, ...props}}.
+
+export interface CyNode {
+  data: {
+    id: string
+    label: string
+    type: string
+    risk_level?: string | null
+    [k: string]: unknown
+  }
+}
+export interface CyEdge {
+  data: { id: string; source: string; target: string; rel: string; risk_level?: string | null }
+}
+export interface CyGraph {
+  nodes:      CyNode[]
+  edges:      CyEdge[]
+  node_count: number
+  edge_count: number
+}
+
+function tocy(raw: { nodes: unknown[]; edges: unknown[]; node_count: number; edge_count: number }): CyGraph {
+  const nodes: CyNode[] = (raw.nodes as Array<{ id: string; label: string; properties?: Record<string, unknown>; risk_level?: string | null }>).map(n => ({
+    data: {
+      id:        n.id,
+      type:      n.label,          // "Taxpayer" / "Invoice" / etc.
+      label:     ((n.properties?.legal_name ?? n.properties?.invoice_no ?? n.id) as string),
+      risk_level: n.risk_level,
+      ...n.properties,
+    },
+  }))
+  const edges: CyEdge[] = (raw.edges as Array<{ id: string; source: string; target: string; label: string; properties?: Record<string, unknown>; risk_level?: string | null }>).map(e => ({
+    data: { id: e.id, source: e.source, target: e.target, rel: e.label, risk_level: e.risk_level },
+  }))
+  return { nodes, edges, node_count: raw.node_count, edge_count: raw.edge_count }
+}
+
 export const graphApi = {
-  stats:    () => api.get<Record<string, unknown>>('/graph/stats'),
+  stats: () => api.get<Record<string, unknown>>('/graph/stats'),
+
+  overview: (limit = 30) =>
+    api.get<{ nodes: unknown[]; edges: unknown[]; node_count: number; edge_count: number }>(
+      `/graph/overview?limit=${limit}`
+    ).then(r => ({ ...r, data: tocy(r.data) })),
+
   subgraph: (gstin: string, depth = 1) =>
     api.get<{ nodes: unknown[]; edges: unknown[]; node_count: number; edge_count: number }>(
       `/graph/subgraph/${gstin}?depth=${depth}`
-    ),
+    ).then(r => ({ ...r, data: tocy(r.data) })),
 }
 
 export const reconcileApi = {

@@ -2,6 +2,7 @@ import { useEffect, useState, useCallback } from 'react'
 import { RefreshCw, Cpu, TrendingUp, ChevronDown } from 'lucide-react'
 import RiskBadge from '@/components/shared/RiskBadge'
 import TrustGauge from '@/components/shared/TrustGauge'
+import { TableSkeleton } from '@/components/shared/Skeleton'
 import { vendorsApi } from '@/lib/api'
 import { fmtDate } from '@/lib/utils'
 
@@ -96,7 +97,8 @@ export default function VendorsPage() {
         <button
           onClick={handleTrain}
           disabled={training}
-          className="flex items-center gap-2 bg-surface border border-border hover:border-accent/50 text-sm font-medium px-4 py-2 rounded-lg transition-all"
+          className="flex items-center gap-2 bg-surface rounded-xl text-[13px] font-medium px-4 py-2 hover:bg-bg shadow-card transition-all"
+          style={{ border: '1px solid #E4E4E7' }}
         >
           <Cpu size={14} className={training ? 'animate-pulse text-accent' : 'text-muted'} />
           {training ? 'Training…' : 'Train ML Model'}
@@ -104,12 +106,16 @@ export default function VendorsPage() {
         <button
           onClick={handleScore}
           disabled={scoring}
-          className="flex items-center gap-2 bg-accent hover:bg-accent/90 disabled:opacity-50 text-white text-sm font-medium px-4 py-2 rounded-lg transition-all shadow-glow"
+          className="flex items-center gap-2 bg-accent hover:bg-accent-h disabled:opacity-50 text-white text-[13px] font-bold px-4 py-2 rounded-xl transition-all shadow-glow"
         >
           <TrendingUp size={14} />
           {scoring ? 'Scoring…' : 'Score All Vendors'}
         </button>
-        <button onClick={load} className="bg-surface border border-border rounded-lg p-2 text-muted hover:text-foreground transition-colors">
+        <button
+          onClick={load}
+          className="bg-surface rounded-xl p-2 text-muted hover:text-foreground shadow-card transition-colors"
+          style={{ border: '1px solid #E4E4E7' }}
+        >
           <RefreshCw size={15} className={loading ? 'animate-spin' : ''} />
         </button>
         {msg && <span className="text-xs text-muted ml-2">{msg}</span>}
@@ -117,32 +123,33 @@ export default function VendorsPage() {
 
       <div className="grid grid-cols-1 xl:grid-cols-[1fr_360px] gap-6">
         {/* Vendor table */}
-        <div className="bg-surface border border-border rounded-xl overflow-hidden">
+        <div className="bg-surface rounded-2xl overflow-hidden shadow-card">
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
               <thead>
-                <tr className="border-b border-border text-xs text-muted">
-                  <th className="text-left px-4 py-3 font-medium">GSTIN</th>
-                  <th className="text-left px-4 py-3 font-medium">State</th>
-                  <th className="text-left px-4 py-3 font-medium">Status</th>
-                  <th className="text-left px-4 py-3 font-medium w-40">Compliance</th>
-                  <th className="text-left px-4 py-3 font-medium">Risk</th>
-                  <th className="text-right px-4 py-3 font-medium">Invoices</th>
-                  <th className="text-right px-4 py-3 font-medium">High-Risk</th>
+                <tr className="text-xs" style={{ borderBottom: '1px solid #F4F4F5' }}>
+                  <th className="text-left px-4 py-3 label-cap">GSTIN</th>
+                  <th className="text-left px-4 py-3 label-cap">State</th>
+                  <th className="text-left px-4 py-3 label-cap">Status</th>
+                  <th className="text-left px-4 py-3 label-cap w-40">Compliance</th>
+                  <th className="text-left px-4 py-3 label-cap">Risk</th>
+                  <th className="text-right px-4 py-3 label-cap">Invoices</th>
+                  <th className="text-right px-4 py-3 label-cap">High-Risk</th>
                   <th className="w-8" />
                 </tr>
               </thead>
               <tbody>
-                {loading && <tr><td colSpan={8} className="text-center py-12 text-muted">Loading…</td></tr>}
+                {loading && <TableSkeleton rows={8} cols={8} />}
                 {!loading && vendors.length === 0 && (
-                  <tr><td colSpan={8} className="text-center py-12 text-muted">
+                  <tr><td colSpan={8} className="text-center py-16 text-muted">
                     No vendors yet. Upload taxpayers.xlsx first.
                   </td></tr>
                 )}
                 {!loading && vendors.map(v => (
                   <tr
                     key={v.gstin}
-                    className="border-b border-border/60 hover:bg-white/[0.03] cursor-pointer transition-colors"
+                    className="tr-hover"
+                    style={{ borderBottom: '1px solid #F4F4F5' }}
                     onClick={() => openProfile(v.gstin)}
                   >
                     <td className="px-4 py-3 font-mono text-xs text-accent">{v.gstin}</td>
@@ -161,11 +168,20 @@ export default function VendorsPage() {
         </div>
 
         {/* Profile panel */}
-        <div className="bg-surface border border-border rounded-xl overflow-hidden flex flex-col">
-          {profLoad && <div className="flex-1 flex items-center justify-center text-muted">Loading…</div>}
+        <div className="bg-surface rounded-2xl overflow-hidden flex flex-col shadow-card">
+          {profLoad && (
+            <div className="p-6 space-y-4">
+              <div className="skeleton h-3 w-24 rounded" />
+              <div className="flex justify-center py-4"><div className="skeleton w-28 h-28 rounded-full" /></div>
+              {Array.from({ length: 4 }).map((_, i) => <div key={i} className="skeleton h-10 rounded-xl" />)}
+            </div>
+          )}
           {!profLoad && !profile && (
-            <div className="flex-1 flex items-center justify-center text-muted text-sm p-8 text-center">
-              Click a vendor row to see its full risk profile
+            <div className="flex-1 flex flex-col items-center justify-center text-muted text-sm p-8 text-center gap-3">
+              <div className="w-10 h-10 rounded-xl bg-bg flex items-center justify-center">
+                <TrendingUp size={18} className="text-subtle" />
+              </div>
+              <p>Click a vendor row to view<br/>its full risk profile</p>
             </div>
           )}
           {!profLoad && profile && <VendorProfilePanel profile={profile} />}
@@ -200,12 +216,12 @@ function VendorProfilePanel({ profile }: { profile: VendorProfile }) {
 
       {/* Score breakdown */}
       <div>
-        <p className="text-xs font-medium text-muted mb-2">Score Breakdown</p>
+        <p className="label-cap mb-2">Score Breakdown</p>
         <div className="space-y-2">
           {features.map(([k, v]) => (
-            <div key={k} className="flex justify-between bg-bg rounded-lg border border-border px-3 py-2">
+            <div key={k} className="flex justify-between bg-bg rounded-xl px-3 py-2.5">
               <span className="text-xs text-muted">{k}</span>
-              <span className="text-xs font-mono font-medium text-foreground">{v}</span>
+              <span className="text-xs font-mono font-semibold text-foreground">{v}</span>
             </div>
           ))}
         </div>
@@ -214,10 +230,10 @@ function VendorProfilePanel({ profile }: { profile: VendorProfile }) {
       {/* Pattern flags */}
       {profile.pattern_flags.length > 0 && (
         <div>
-          <p className="text-xs font-medium text-muted mb-2">Pattern Flags</p>
+          <p className="label-cap mb-2">Pattern Flags</p>
           <div className="flex flex-wrap gap-2">
             {profile.pattern_flags.map(f => (
-              <span key={f} className="text-xs bg-danger/10 border border-danger/25 text-danger px-2 py-1 rounded-md font-mono">{f}</span>
+              <span key={f} className="text-xs bg-danger-lt text-danger px-2 py-1 rounded-md font-mono font-semibold">{f}</span>
             ))}
           </div>
         </div>
@@ -226,13 +242,13 @@ function VendorProfilePanel({ profile }: { profile: VendorProfile }) {
       {/* Filing history */}
       {profile.filing_history.length > 0 && (
         <div>
-          <p className="text-xs font-medium text-muted mb-2">Filing History</p>
+          <p className="label-cap mb-2">Filing History</p>
           <div className="space-y-1.5">
             {profile.filing_history.slice(0, 6).map(f => (
-              <div key={f.tax_period} className="flex items-center gap-3 text-xs bg-bg rounded-lg border border-border px-3 py-2">
+              <div key={f.tax_period} className="flex items-center gap-3 text-xs bg-bg rounded-xl px-3 py-2">
                 <span className="text-muted font-mono w-16">{f.tax_period}</span>
-                <span className={f.gstr1_filed ? 'text-success' : 'text-danger'}>G1: {f.gstr1_filed ? '✓' : '✗'}</span>
-                <span className={f.gstr3b_filed ? 'text-success' : 'text-danger'}>G3B: {f.gstr3b_filed ? '✓' : '✗'}</span>
+                <span className={f.gstr1_filed ? 'text-success font-medium' : 'text-danger font-medium'}>G1: {f.gstr1_filed ? '✓' : '✗'}</span>
+                <span className={f.gstr3b_filed ? 'text-success font-medium' : 'text-danger font-medium'}>G3B: {f.gstr3b_filed ? '✓' : '✗'}</span>
                 <span className="text-muted ml-auto">{f.payment_delay_days}d</span>
               </div>
             ))}

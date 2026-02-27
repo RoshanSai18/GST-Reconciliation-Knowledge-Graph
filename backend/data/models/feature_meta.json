@@ -1,0 +1,16 @@
+{
+  "feature_names": [
+    "invoice_count",
+    "high_risk_ratio",
+    "warning_ratio",
+    "amendment_rate",
+    "missing_payment_rate",
+    "avg_delay_days",
+    "late_filing_rate",
+    "value_mismatch_rate"
+  ],
+  "n_samples": 100,
+  "n_features": 8,
+  "rf_trained": true,
+  "trained_at": "2026-02-27T17:05:46.041868+00:00"
+}

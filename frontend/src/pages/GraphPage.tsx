@@ -1,113 +1,126 @@
-import { useState, useRef, useEffect } from 'react'
-import { Search, ZoomIn, ZoomOut, Maximize2 } from 'lucide-react'
-import { graphApi } from '@/lib/api'
-
-/* ---------- Types ---------- */
-interface GraphNode {
-  data: {
-    id:    string
-    label: string
-    type:  string
-    gstin?: string
-    return_id?: string
-    invoice_id?: string
-    risk_level?: string
-    compliance_score?: number
-    [k: string]: unknown
-  }
-}
-interface GraphEdge {
-  data: { id: string; source: string; target: string; rel: string; risk_level?: string }
-}
-interface GraphExport {
-  nodes:      GraphNode[]
-  edges:      GraphEdge[]
-  node_count: number
-  edge_count: number
-}
+import { useState, useRef, useEffect, useCallback } from 'react'
+import { Search, ZoomIn, ZoomOut, Maximize2, RefreshCw, ArrowLeft } from 'lucide-react'
+import { graphApi, type CyGraph, type CyNode, type CyEdge } from '@/lib/api'
 
 /* ---------- Color map ---------- */
 const TYPE_COLORS: Record<string, string> = {
-  Taxpayer:    '#3B82F6',
-  Invoice:     '#F59E0B',
-  GSTR1:       '#10B981',
-  GSTR2B:      '#8B5CF6',
-  GSTR3B:      '#A78BFA',
-  TaxPayment:  '#06B6D4',
+  Taxpayer:   '#4F46E5',
+  Invoice:    '#D97706',
+  GSTR1:      '#059669',
+  GSTR2B:     '#7C3AED',
+  GSTR3B:     '#0891B2',
+  TaxPayment: '#0284C7',
 }
-function nodeColor(n: GraphNode) {
+function nodeColor(n: CyNode) {
   if (n.data.risk_level === 'High-Risk') return '#EF4444'
   return TYPE_COLORS[n.data.type] ?? '#94A3B8'
 }
 
-/* ---------- Simple force-like layout ---------- */
-function layoutNodes(nodes: GraphNode[], edges: GraphEdge[], w: number, h: number) {
+/* ---------- Force layout ---------- */
+function layoutNodes(nodes: CyNode[], edges: CyEdge[], w: number, h: number) {
   const pos: Record<string, { x: number; y: number }> = {}
-  nodes.forEach((n, i) => {
-    const ang = (i / Math.max(nodes.length, 1)) * 2 * Math.PI
-    const r = Math.min(w, h) * 0.35
-    pos[n.data.id] = {
-      x: w / 2 + r * Math.cos(ang),
-      y: h / 2 + r * Math.sin(ang),
-    }
-  })
-  // Simple repulsion iterations
-  for (let iter = 0; iter < 40; iter++) {
-    const nodes2 = [...nodes]
-    for (let i = 0; i < nodes2.length; i++) {
-      for (let j = i + 1; j < nodes2.length; j++) {
-        const a = pos[nodes2[i].data.id], b = pos[nodes2[j].data.id]
+  // Group by type for better initial placement
+  const groups: Record<string, CyNode[]> = {}
+  for (const n of nodes) {
+    const t = n.data.type || 'other'
+    ;(groups[t] ||= []).push(n)
+  }
+  const types = Object.keys(groups)
+  let idx = 0
+  for (const type of types) {
+    const nodesInGroup = groups[type]
+    const gAngle = (types.indexOf(type) / Math.max(types.length, 1)) * 2 * Math.PI
+    const gx = w / 2 + Math.min(w, h) * 0.3 * Math.cos(gAngle)
+    const gy = h / 2 + Math.min(w, h) * 0.3 * Math.sin(gAngle)
+    nodesInGroup.forEach((n, i) => {
+      const a = (i / Math.max(nodesInGroup.length, 1)) * 2 * Math.PI
+      const r = Math.min(w, h) * 0.12
+      pos[n.data.id] = { x: gx + r * Math.cos(a), y: gy + r * Math.sin(a) }
+    })
+    idx++
+  }
+  // Force iterations
+  for (let iter = 0; iter < 60; iter++) {
+    // Repulsion
+    for (let i = 0; i < nodes.length; i++) {
+      for (let j = i + 1; j < nodes.length; j++) {
+        const a = pos[nodes[i].data.id], b = pos[nodes[j].data.id]
         const dx = a.x - b.x, dy = a.y - b.y
         const dist = Math.sqrt(dx * dx + dy * dy) || 1
-        const force = 2000 / (dist * dist)
+        const force = 2200 / (dist * dist)
         a.x += force * dx / dist; a.y += force * dy / dist
         b.x -= force * dx / dist; b.y -= force * dy / dist
       }
     }
     // Attraction along edges
-    edges.forEach(e => {
+    for (const e of edges) {
       const a = pos[e.data.source], b = pos[e.data.target]
-      if (!a || !b) return
+      if (!a || !b) continue
       const dx = b.x - a.x, dy = b.y - a.y
       const dist = Math.sqrt(dx * dx + dy * dy) || 1
-      const mul = 0.015
+      const mul = 0.012
       a.x += mul * dx; a.y += mul * dy
       b.x -= mul * dx; b.y -= mul * dy
-    })
-    // Clamp
-    nodes.forEach(n => {
+    }
+    // Clamp to canvas
+    for (const n of nodes) {
       const p = pos[n.data.id]
       p.x = Math.max(30, Math.min(w - 30, p.x))
       p.y = Math.max(30, Math.min(h - 30, p.y))
-    })
+    }
   }
   return pos
 }
+
+const W = 920, H = 580
 
 export default function GraphPage() {
   const [gstin,   setGstin]   = useState('')
   const [depth,   setDepth]   = useState<1 | 2>(1)
   const [loading, setLoading] = useState(false)
-  const [graph,   setGraph]   = useState<GraphExport | null>(null)
-  const [hover,   setHover]   = useState<GraphNode | null>(null)
+  const [graph,   setGraph]   = useState<CyGraph | null>(null)
+  const [mode,    setMode]    = useState<'overview' | 'subgraph'>('overview')
+  const [hover,   setHover]   = useState<CyNode | null>(null)
   const [zoom,    setZoom]    = useState(1)
-  const svgRef = useRef<SVGSVGElement>(null)
-  const W = 880, H = 560
-
+  const [pan,     setPan]     = useState({ x: 0, y: 0 })
+  const [dragging,setDragging]= useState(false)
+  const dragStart = useRef<{ mx: number; my: number; px: number; py: number } | null>(null)
+  const svgRef    = useRef<SVGSVGElement>(null)
   const [pos, setPos] = useState<Record<string, { x: number; y: number }>>({})
 
+  // Re-layout when graph changes
   useEffect(() => {
     if (!graph) return
-    const p = layoutNodes(graph.nodes, graph.edges, W, H)
-    setPos(p)
+    setPos(layoutNodes(graph.nodes, graph.edges, W, H))
+    setZoom(1)
+    setPan({ x: 0, y: 0 })
   }, [graph])
 
-  async function handleVisualize() {
-    if (!gstin) return
+  // Auto-load overview on mount
+  const loadOverview = useCallback(async () => {
     setLoading(true)
     try {
-      const r = await graphApi.subgraph(gstin.toUpperCase(), depth)
-      setGraph(r.data as GraphExport)
+      const r = await graphApi.overview(40)
+      setGraph(r.data)
+      setMode('overview')
+    } catch {
+      setGraph(null)
+    } finally {
+      setLoading(false)
+    }
+  }, [])
+
+  useEffect(() => { loadOverview() }, [loadOverview])
+
+  async function handleVisualize(targetGstin?: string) {
+    const g = (targetGstin ?? gstin).trim().toUpperCase()
+    if (!g) return
+    setGstin(g)
+    setLoading(true)
+    try {
+      const r = await graphApi.subgraph(g, depth)
+      setGraph(r.data)
+      setMode('subgraph')
     } catch {
       setGraph(null)
     } finally {
@@ -115,42 +128,92 @@ export default function GraphPage() {
     }
   }
 
+  function handleNodeClick(n: CyNode) {
+    if (n.data.type === 'Taxpayer' && n.data.id) {
+      handleVisualize(n.data.id as string)
+    }
+  }
+
+  // Pan logic
+  function onMouseDown(e: React.MouseEvent) {
+    if ((e.target as SVGElement).closest('g[data-node]')) return
+    dragStart.current = { mx: e.clientX, my: e.clientY, px: pan.x, py: pan.y }
+    setDragging(true)
+  }
+  function onMouseMove(e: React.MouseEvent) {
+    if (!dragStart.current) return
+    setPan({
+      x: dragStart.current.px + e.clientX - dragStart.current.mx,
+      y: dragStart.current.py + e.clientY - dragStart.current.my,
+    })
+  }
+  function onMouseUp() { dragStart.current = null; setDragging(false) }
+
   return (
-    <div className="space-y-4 animate-fade-in">
-      {/* Controls */}
+    <div className="space-y-4 animate-fade-in-up">
+      {/* Controls row */}
       <div className="flex flex-wrap items-center gap-3">
-        <div className="relative min-w-56">
-          <Search size={13} className="absolute left-3 top-1/2 -translate-y-1/2 text-muted" />
+        {/* Back to overview */}
+        {mode === 'subgraph' && (
+          <button
+            onClick={loadOverview}
+            className="flex items-center gap-1.5 text-[12px] font-semibold text-accent hover:text-accent-h transition-colors"
+          >
+            <ArrowLeft size={13} /> Overview
+          </button>
+        )}
+
+        {/* GSTIN search */}
+        <div className="relative min-w-60">
+          <Search size={13} className="absolute left-3 top-1/2 -translate-y-1/2 text-subtle" />
           <input
             type="text"
-            placeholder="Enter GSTIN…"
+            placeholder="Enter GSTIN to drill down…"
             value={gstin}
             onChange={e => setGstin(e.target.value)}
             onKeyDown={e => e.key === 'Enter' && handleVisualize()}
-            className="w-full bg-surface border border-border rounded-lg pl-8 pr-3 py-2 text-sm placeholder:text-muted focus:outline-none focus:border-accent/60 transition-colors"
+            className="w-full bg-surface rounded-xl pl-8 pr-3 py-2 text-sm placeholder:text-subtle focus:outline-none focus:ring-2 focus:ring-accent/25 transition-all"
+            style={{ border: '1px solid #E4E4E7' }}
           />
         </div>
-        <div className="flex rounded-lg border border-border overflow-hidden text-sm">
+
+        {/* Depth toggle */}
+        <div className="flex rounded-xl overflow-hidden text-sm shadow-card">
           {([1, 2] as const).map(d => (
             <button
               key={d}
               onClick={() => setDepth(d)}
-              className={`px-3 py-2 transition-colors ${depth === d ? 'bg-accent text-white' : 'bg-surface text-muted hover:text-foreground'}`}
+              className={`px-4 py-2 font-medium transition-colors ${depth === d ? 'bg-accent text-white' : 'bg-surface text-muted hover:text-foreground'}`}
             >
               Depth {d}
             </button>
           ))}
         </div>
+
         <button
-          onClick={handleVisualize}
-          disabled={!gstin || loading}
-          className="bg-accent hover:bg-accent/90 disabled:opacity-40 text-white text-sm font-medium px-4 py-2 rounded-lg transition-all shadow-glow"
+          onClick={() => handleVisualize()}
+          disabled={!gstin.trim() || loading}
+          className="bg-accent hover:bg-accent-h disabled:opacity-40 text-white text-[13px] font-semibold px-4 py-2 rounded-xl transition-all shadow-glow"
         >
           {loading ? 'Loading…' : '🔍 Visualize'}
         </button>
+
+        <button
+          onClick={loadOverview}
+          disabled={loading}
+          title="Reload overview"
+          className="p-2 rounded-xl bg-surface shadow-card text-muted hover:text-foreground disabled:opacity-40 transition-colors"
+        >
+          <RefreshCw size={14} className={loading ? 'animate-spin' : ''} />
+        </button>
+
         {graph && (
           <span className="text-xs text-muted ml-auto">
-            {graph.node_count} nodes · {graph.edge_count} edges
+            {mode === 'overview'
+              ? <span className="font-semibold text-accent">Overview</span>
+              : <span className="font-semibold text-accent">{gstin}</span>
+            }
+            {' '}· {graph.node_count} nodes · {graph.edge_count} edges
           </span>
         )}
       </div>
@@ -167,74 +230,87 @@ export default function GraphPage() {
           <div className="w-3 h-3 rounded-full bg-danger" />
           High-Risk
         </div>
+        {mode === 'overview' && (
+          <span className="text-[10px] text-subtle ml-auto">Click a Taxpayer node to drill in</span>
+        )}
       </div>
 
       {/* Canvas */}
-      <div className="bg-surface border border-border rounded-xl overflow-hidden relative graph-canvas" style={{ height: H }}>
-        {/* Zoom controls */}
+      <div
+        className="bg-surface rounded-2xl overflow-hidden relative graph-canvas shadow-card"
+        style={{ height: H, cursor: dragging ? 'grabbing' : 'grab' }}
+      >
+        {/* Zoom + pan controls */}
         <div className="absolute top-3 right-3 flex flex-col gap-1 z-10">
           {[
-            { icon: <ZoomIn size={14} />, action: () => setZoom(z => Math.min(z + 0.2, 3)) },
-            { icon: <ZoomOut size={14} />, action: () => setZoom(z => Math.max(z - 0.2, 0.3)) },
-            { icon: <Maximize2 size={14} />, action: () => setZoom(1) },
+            { icon: <ZoomIn  size={14} />, action: () => setZoom(z => Math.min(z + 0.2, 4)) },
+            { icon: <ZoomOut size={14} />, action: () => setZoom(z => Math.max(z - 0.2, 0.2)) },
+            { icon: <Maximize2 size={14} />, action: () => { setZoom(1); setPan({ x: 0, y: 0 }) } },
           ].map((b, i) => (
-            <button key={i} onClick={b.action} className="bg-bg border border-border rounded-md p-1.5 text-muted hover:text-foreground transition-colors">
+            <button key={i} onClick={b.action}
+              className="bg-surface rounded-lg p-1.5 text-muted hover:text-foreground shadow-card transition-colors">
               {b.icon}
             </button>
           ))}
         </div>
 
-        {!graph && !loading && (
-          <div className="absolute inset-0 flex items-center justify-center text-muted text-sm">
-            Enter a GSTIN and click Visualize to explore the knowledge graph
-          </div>
-        )}
-        {loading && (
-          <div className="absolute inset-0 flex items-center justify-center text-muted text-sm">
-            Building subgraph…
+        {/* Mode badge */}
+        {graph && !loading && (
+          <div className="absolute top-3 left-3 z-10">
+            <span className={`text-[10px] font-semibold px-2 py-1 rounded-full ${
+              mode === 'overview'
+                ? 'bg-accent-lt text-accent'
+                : 'bg-[#FFF7ED] text-amber-600'
+            }`}>
+              {mode === 'overview' ? 'Full Overview' : `Subgraph: ${gstin}`}
+            </span>
           </div>
         )}
 
+        {/* Empty / loading states */}
+        {!graph && !loading && (
+          <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 text-muted text-sm">
+            <div className="text-4xl">🕸️</div>
+            <p>No data yet. Upload files first, then the graph will appear here.</p>
+          </div>
+        )}
+        {loading && (
+          <div className="absolute inset-0 flex items-center justify-center gap-2 text-muted text-sm">
+            <span className="animate-spin inline-block w-4 h-4 border-2 border-accent/30 border-t-accent rounded-full" />
+            {mode === 'overview' ? 'Loading graph overview…' : 'Building subgraph…'}
+          </div>
+        )}
+
+        {/* SVG graph */}
         {graph && !loading && (
           <svg
             ref={svgRef}
             width="100%"
             height="100%"
             viewBox={`0 0 ${W} ${H}`}
-            style={{ transform: `scale(${zoom})`, transformOrigin: 'center center', transition: 'transform 0.2s' }}
+            style={{ transform: `translate(${pan.x}px,${pan.y}px) scale(${zoom})`, transformOrigin: 'center center', transition: dragging ? 'none' : 'transform 0.15s' }}
+            onMouseDown={onMouseDown}
+            onMouseMove={onMouseMove}
+            onMouseUp={onMouseUp}
+            onMouseLeave={onMouseUp}
           >
             {/* Edges */}
             {graph.edges.map(e => {
               const a = pos[e.data.source], b = pos[e.data.target]
               if (!a || !b) return null
               const isAlert = e.data.risk_level === 'High-Risk'
+              const mx = (a.x + b.x) / 2, my = (a.y + b.y) / 2
               return (
-                <line
-                  key={e.data.id}
-                  x1={a.x} y1={a.y} x2={b.x} y2={b.y}
-                  stroke={isAlert ? '#EF4444' : '#334155'}
-                  strokeWidth={isAlert ? 1.5 : 1}
-                  strokeDasharray={isAlert ? '5 3' : undefined}
-                  opacity={0.7}
-                  className={isAlert ? 'edge-alert' : ''}
-                />
-              )
-            })}
-            {/* Edge labels */}
-            {graph.edges.map(e => {
-              const a = pos[e.data.source], b = pos[e.data.target]
-              if (!a || !b) return null
-              return (
-                <text
-                  key={e.data.id + '_lbl'}
-                  x={(a.x + b.x) / 2}
-                  y={(a.y + b.y) / 2 - 4}
-                  fill="#94A3B8"
-                  fontSize={9}
-                  textAnchor="middle"
-                >
-                  {e.data.rel}
-                </text>
+                <g key={e.data.id}>
+                  <line
+                    x1={a.x} y1={a.y} x2={b.x} y2={b.y}
+                    stroke={isAlert ? '#B91C1C' : '#D4D4D8'}
+                    strokeWidth={isAlert ? 1.5 : 1}
+                    strokeDasharray={isAlert ? '5 3' : undefined}
+                    opacity={0.6}
+                  />
+                  <text x={mx} y={my - 4} fill="#94A3B8" fontSize={8} textAnchor="middle">{e.data.rel}</text>
+                </g>
               )
             })}
 
@@ -244,11 +320,14 @@ export default function GraphPage() {
               if (!p) return null
               const color = nodeColor(n)
               const isAlert = n.data.risk_level === 'High-Risk'
+              const isTaxpayer = n.data.type === 'Taxpayer'
               return (
                 <g
                   key={n.data.id}
+                  data-node="1"
                   transform={`translate(${p.x},${p.y})`}
-                  style={{ cursor: 'pointer' }}
+                  style={{ cursor: isTaxpayer ? 'pointer' : 'default' }}
+                  onClick={() => handleNodeClick(n)}
                   onMouseEnter={() => setHover(n)}
                   onMouseLeave={() => setHover(null)}
                 >
@@ -258,12 +337,15 @@ export default function GraphPage() {
                       <circle r={22} stroke={color} strokeWidth={1} fill="none" opacity={0.3} />
                     </>
                   )}
-                  <circle r={14} fill={color} opacity={0.9} stroke="#1E293B" strokeWidth={2} />
-                  <text fill="#ffffff" fontSize={9} textAnchor="middle" dominantBaseline="central" fontWeight="600">
+                  {isTaxpayer && (
+                    <circle r={17} fill={color} opacity={0.12} />
+                  )}
+                  <circle r={13} fill={color} opacity={0.92} stroke="#1E293B" strokeWidth={1.5} />
+                  <text fill="#fff" fontSize={9} textAnchor="middle" dominantBaseline="central" fontWeight="700">
                     {n.data.type[0]}
                   </text>
-                  <text fill="#94A3B8" fontSize={9} textAnchor="middle" y={22}>
-                    {(n.data.label ?? n.data.id).slice(0, 14)}
+                  <text fill="#94A3B8" fontSize={8} textAnchor="middle" y={22}>
+                    {String(n.data.label ?? n.data.id).slice(0, 15)}
                   </text>
                 </g>
               )
@@ -273,15 +355,21 @@ export default function GraphPage() {
 
         {/* Tooltip */}
         {hover && (
-          <div className="absolute bottom-4 left-4 bg-bg border border-border rounded-xl p-4 text-xs max-w-xs shadow-card animate-fade-in pointer-events-none">
-            <p className="font-semibold text-foreground mb-2">{hover.data.type}: {hover.data.label ?? hover.data.id}</p>
+          <div className="absolute bottom-4 left-4 bg-surface rounded-2xl p-4 text-xs max-w-xs shadow-card-lg animate-fade-in pointer-events-none z-20">
+            <p className="font-bold text-foreground mb-2">
+              <span className="text-accent">{hover.data.type}</span>
+              {' · '}{String(hover.data.label ?? hover.data.id)}
+            </p>
+            {hover.data.type === 'Taxpayer' && (
+              <p className="text-[10px] text-accent mb-2">Click to explore subgraph →</p>
+            )}
             {Object.entries(hover.data)
               .filter(([k]) => !['id', 'label', 'type'].includes(k) && hover.data[k] != null)
-              .slice(0, 6)
+              .slice(0, 7)
               .map(([k, v]) => (
-                <div key={k} className="flex justify-between gap-4 mb-0.5">
-                  <span className="text-muted">{k}</span>
-                  <span className="text-foreground font-mono">{String(v)}</span>
+                <div key={k} className="flex justify-between gap-4 mb-1">
+                  <span className="label-cap">{k.replace(/_/g, ' ')}</span>
+                  <span className="text-foreground font-mono font-medium truncate max-w-32">{String(v)}</span>
                 </div>
               ))}
           </div>
@@ -290,3 +378,4 @@ export default function GraphPage() {
     </div>
   )
 }
+
