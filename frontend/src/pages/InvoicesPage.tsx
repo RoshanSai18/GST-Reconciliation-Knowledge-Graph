@@ -59,8 +59,30 @@ export default function InvoicesPage() {
 
   function openDetail(id: string) {
     setDetailLoading(true)
+    setSelected(null)
     invoicesApi.detail(id)
-      .then(r => setSelected(r.data as InvoiceDetail))
+      .then(r => {
+        // Backend wraps core invoice fields inside r.data.invoice
+        const d = r.data as {
+          invoice: Invoice
+          value_comparison?: InvoiceDetail['value_comparison']
+          path_hops?: InvoiceDetail['path_hops']
+          payments?: InvoiceDetail['payments']
+          gstr1?: InvoiceDetail['gstr1']
+          amends?: string | null
+          amended_by?: string | null
+        }
+        const flat: InvoiceDetail = {
+          ...(d.invoice ?? (d as unknown as Invoice)),
+          value_comparison: d.value_comparison,
+          path_hops:        d.path_hops,
+          payments:         d.payments,
+          gstr1:            d.gstr1,
+          amends:           d.amends,
+          amended_by:       d.amended_by,
+        }
+        setSelected(flat)
+      })
       .catch(() => setSelected(null))
       .finally(() => setDetailLoading(false))
   }
@@ -186,11 +208,11 @@ export default function InvoicesPage() {
 
       {/* Detail modal */}
       {(selected || detailLoading) && (
-        <div className="fixed inset-0 bg-black/40 backdrop-blur-[2px] z-50 flex items-center justify-center p-4 animate-fade-in">
-          <div className="bg-surface rounded-2xl w-full max-w-2xl max-h-[85vh] overflow-y-auto shadow-card-lg">
+        <div className="fixed inset-0 bg-black/40 backdrop-blur-[2px] z-50 flex items-center justify-center p-4 animate-fade-in" onClick={() => { setSelected(null); setDetailLoading(false) }}>
+          <div className="bg-surface rounded-2xl w-full max-w-2xl max-h-[85vh] overflow-y-auto shadow-card-lg" onClick={e => e.stopPropagation()}>
             <div className="flex items-center justify-between px-6 py-4 sticky top-0 bg-surface z-10" style={{ borderBottom: '1px solid #F4F4F5' }}>
               <h3 className="font-bold text-foreground">Invoice Detail</h3>
-              <button onClick={() => setSelected(null)} className="p-1.5 rounded-lg text-muted hover:text-foreground hover:bg-bg transition-colors">
+              <button onClick={() => { setSelected(null); setDetailLoading(false) }} className="p-1.5 rounded-lg text-muted hover:text-foreground hover:bg-bg transition-colors">
                 <X size={16} />
               </button>
             </div>
