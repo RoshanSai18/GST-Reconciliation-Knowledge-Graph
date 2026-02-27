@@ -9,10 +9,10 @@ export function Skeleton({ className }: SkeletonProps) {
   return <div className={cn('skeleton', className)} />
 }
 
-/** Pre-built table skeleton — n rows × cols columns */
+/** Pre-built table skeleton — n rows × cols columns (renders <tr> elements only, place inside <tbody>) */
 export function TableSkeleton({ rows = 8, cols = 7 }: { rows?: number; cols?: number }) {
   return (
-    <tbody>
+    <>
       {Array.from({ length: rows }).map((_, r) => (
         <tr key={r} className="border-b border-border/50">
           {Array.from({ length: cols }).map((_, c) => (
@@ -22,7 +22,7 @@ export function TableSkeleton({ rows = 8, cols = 7 }: { rows?: number; cols?: nu
           ))}
         </tr>
       ))}
-    </tbody>
+    </>
   )
 }
 
