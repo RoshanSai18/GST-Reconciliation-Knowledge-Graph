@@ -23,7 +23,7 @@ NEO4J_PASSWORD: str = os.getenv("NEO4J_PASSWORD", "password")
 NEO4J_DATABASE: str = os.getenv("NEO4J_DATABASE", "neo4j")
 
 # ---------------------------------------------------------------------------
-# JWT Authentication
+# JWT Authentication (legacy — kept for backwards compat during transition)
 # ---------------------------------------------------------------------------
 JWT_SECRET: str = os.getenv(
     "JWT_SECRET",
@@ -32,6 +32,16 @@ JWT_SECRET: str = os.getenv(
 JWT_ALGORITHM: str = os.getenv("JWT_ALGORITHM", "HS256")
 ACCESS_TOKEN_EXPIRE_MINUTES: int = int(
     os.getenv("ACCESS_TOKEN_EXPIRE_MINUTES", "480")  # 8 hours for hackathon
+)
+
+# ---------------------------------------------------------------------------
+# Clerk Authentication
+# ---------------------------------------------------------------------------
+CLERK_PUBLISHABLE_KEY: str = os.getenv("CLERK_PUBLISHABLE_KEY", "")
+CLERK_SECRET_KEY: str = os.getenv("CLERK_SECRET_KEY", "")
+CLERK_JWKS_URL: str = os.getenv(
+    "CLERK_JWKS_URL",
+    "",  # e.g. https://your-app.clerk.accounts.dev/.well-known/jwks.json
 )
 
 # ---------------------------------------------------------------------------

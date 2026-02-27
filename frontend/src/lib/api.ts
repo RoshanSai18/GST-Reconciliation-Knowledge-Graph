@@ -5,19 +5,28 @@ const api = axios.create({
   timeout: 30_000,
 })
 
-// Inject JWT on every request
-api.interceptors.request.use((config) => {
-  const token = localStorage.getItem('gst_token')
+// ---------------------------------------------------------------------------
+// Clerk token provider — registered by useAuth (ClerkTokenSync component)
+// ---------------------------------------------------------------------------
+let _tokenProvider: (() => Promise<string | null>) | null = null
+
+/** Called once by ClerkTokenSync to wire Clerk's getToken into Axios. */
+export function setTokenProvider(fn: () => Promise<string | null>) {
+  _tokenProvider = fn
+}
+
+// Inject Clerk JWT on every request (async interceptor)
+api.interceptors.request.use(async (config) => {
+  const token = _tokenProvider ? await _tokenProvider() : null
   if (token) config.headers.Authorization = `Bearer ${token}`
   return config
 })
 
-// Redirect to /login on 401
+// Redirect to /login on 401 — Clerk will handle re-authentication
 api.interceptors.response.use(
   (res) => res,
   (err) => {
     if (err.response?.status === 401) {
-      localStorage.removeItem('gst_token')
       window.location.href = '/login'
     }
     return Promise.reject(err)

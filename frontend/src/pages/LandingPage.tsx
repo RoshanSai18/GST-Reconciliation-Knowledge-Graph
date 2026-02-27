@@ -3,17 +3,12 @@ import {
   useEffect,
   useRef,
   useCallback,
-  type FormEvent,
   type MouseEvent as RMouseEvent,
 } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useClerk } from '@clerk/clerk-react'
 import {
   GitMerge,
-  Eye,
-  EyeOff,
-  AlertCircle,
   Shield,
-  X,
   Network,
   ShieldCheck,
   FileSearch,
@@ -21,7 +16,6 @@ import {
   ArrowRight,
   ChevronRight,
 } from 'lucide-react'
-import { useAuth } from '@/hooks/useAuth'
 
 // ── Scroll-reveal hook ─────────────────────────────────────────────────────────
 function useReveal() {
@@ -201,141 +195,6 @@ function BentoCard({ icon, title, body, className = '', delay = '0s', accent = '
   )
 }
 
-// ── Login Modal ───────────────────────────────────────────────────────────────
-function LoginModal({ onClose }: { onClose: () => void }) {
-  const { login } = useAuth()
-  const navigate = useNavigate()
-  const [user, setUser] = useState('')
-  const [pass, setPass] = useState('')
-  const [show, setShow] = useState(false)
-  const [err, setErr] = useState('')
-  const [busy, setBusy] = useState(false)
-
-  // Close on Escape
-  useEffect(() => {
-    function onKey(e: KeyboardEvent) {
-      if (e.key === 'Escape') onClose()
-    }
-    window.addEventListener('keydown', onKey)
-    return () => window.removeEventListener('keydown', onKey)
-  }, [onClose])
-
-  async function handleSubmit(e: FormEvent) {
-    e.preventDefault()
-    setErr('')
-    setBusy(true)
-    try {
-      await login(user, pass)
-      navigate('/dashboard', { replace: true })
-    } catch {
-      setErr('Invalid credentials — check username / password.')
-    } finally {
-      setBusy(false)
-    }
-  }
-
-  return (
-    <div
-      className="fixed inset-0 z-50 flex items-center justify-center p-4"
-      style={{ background: 'rgba(0,0,0,0.55)' }}
-      onClick={onClose}
-    >
-      {/* Backdrop blur layer */}
-      <div className="absolute inset-0 backdrop-blur-sm" />
-
-      <div
-        className="relative w-full max-w-[400px] animate-fade-in-up"
-        onClick={e => e.stopPropagation()}
-      >
-        <div className="relative overflow-hidden rounded-2xl bg-white p-8 shadow-card-lg">
-          {/* Close */}
-          <button
-            onClick={onClose}
-            className="absolute right-4 top-4 rounded-lg p-1.5 text-zinc-400 transition-colors hover:bg-zinc-100 hover:text-zinc-700"
-          >
-            <X size={16} />
-          </button>
-
-          {/* Logo */}
-          <div className="mb-7 flex items-center gap-3">
-            <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-accent shadow-glow">
-              <GitMerge size={20} className="text-white" strokeWidth={2.5} />
-            </div>
-            <div>
-              <h1 className="text-xl font-bold text-zinc-900">
-                Graph<span className="text-accent">GST</span>
-              </h1>
-              <p className="text-[11px] text-zinc-400">AI Reconciliation Engine</p>
-            </div>
-          </div>
-
-          <h2 className="mb-1 text-[17px] font-bold text-zinc-900">Welcome back</h2>
-          <p className="mb-6 text-[13px] text-zinc-500">Sign in to access the reconciliation dashboard</p>
-
-          <form onSubmit={handleSubmit} className="space-y-4">
-            <div>
-              <label className="label-cap mb-1.5 block">Username</label>
-              <input
-                type="text"
-                value={user}
-                onChange={e => setUser(e.target.value)}
-                required
-                autoFocus
-                placeholder="admin"
-                className="w-full rounded-xl border border-zinc-200 bg-zinc-50 px-4 py-2.5 text-[13px] text-zinc-900 placeholder:text-zinc-400 focus:border-transparent focus:outline-none focus:ring-2 focus:ring-accent/30 transition-all"
-              />
-            </div>
-
-            <div>
-              <label className="label-cap mb-1.5 block">Password</label>
-              <div className="relative">
-                <input
-                  type={show ? 'text' : 'password'}
-                  value={pass}
-                  onChange={e => setPass(e.target.value)}
-                  required
-                  placeholder="••••••••"
-                  className="w-full rounded-xl border border-zinc-200 bg-zinc-50 px-4 py-2.5 pr-10 text-[13px] text-zinc-900 placeholder:text-zinc-400 focus:border-transparent focus:outline-none focus:ring-2 focus:ring-accent/30 transition-all"
-                />
-                <button
-                  type="button"
-                  onClick={() => setShow(s => !s)}
-                  className="absolute right-3 top-1/2 -translate-y-1/2 text-zinc-400 transition-colors hover:text-zinc-600"
-                >
-                  {show ? <EyeOff size={15} /> : <Eye size={15} />}
-                </button>
-              </div>
-            </div>
-
-            {err && (
-              <div className="flex items-center gap-2 rounded-xl bg-red-50 px-3 py-2.5 text-[12px] text-red-700">
-                <AlertCircle size={14} className="flex-shrink-0" />
-                {err}
-              </div>
-            )}
-
-            <button
-              type="submit"
-              disabled={busy || !user || !pass}
-              className="mt-2 w-full rounded-xl bg-accent py-2.5 text-[13px] font-bold text-white shadow-glow transition-all hover:bg-accent-h hover:shadow-none disabled:cursor-not-allowed disabled:opacity-50"
-            >
-              {busy ? 'Signing in…' : 'Sign in'}
-            </button>
-          </form>
-
-          <div className="mt-6 flex items-center gap-2 border-t border-zinc-100 pt-4">
-            <Shield size={12} className="flex-shrink-0 text-zinc-400" />
-            <p className="text-[11px] text-zinc-400">
-              Demo: <span className="font-mono text-zinc-600">admin</span> /
-              <span className="font-mono text-zinc-600"> admin@gst123</span>
-            </p>
-          </div>
-        </div>
-      </div>
-    </div>
-  )
-}
-
 // ── Trust logos (text-based wordmarks) ────────────────────────────────────────
 const TRUST_LOGOS = [
   'Deloitte', 'Ernst & Young', 'KPMG', 'PricewaterhouseCoopers', 'Grant Thornton', 'BDO India',
@@ -343,7 +202,7 @@ const TRUST_LOGOS = [
 
 // ── Main Landing Page ─────────────────────────────────────────────────────────
 export default function LandingPage() {
-  const [showLogin, setShowLogin]   = useState(false)
+  const { openSignIn } = useClerk()
   const [scrolled, setScrolled]     = useState(false)
 
   const trustReveal  = useReveal()
@@ -397,13 +256,13 @@ export default function LandingPage() {
           {/* Right actions */}
           <div className="flex items-center gap-3">
             <button
-              onClick={() => setShowLogin(true)}
+              onClick={() => openSignIn({ afterSignInUrl: '/profile' })}
               className="rounded-lg px-4 py-2 text-[13px] font-medium text-zinc-300 ring-1 ring-white/15 transition-all duration-200 hover:bg-white/8 hover:text-white hover:ring-white/25"
             >
               Sign In
             </button>
             <button
-              onClick={() => setShowLogin(true)}
+              onClick={() => openSignIn({ afterSignInUrl: '/profile' })}
               className="rounded-lg bg-white px-4 py-2 text-[13px] font-semibold text-zinc-900 transition-all duration-200 hover:bg-zinc-100 hover:shadow-lg"
             >
               Request Demo
@@ -461,7 +320,7 @@ export default function LandingPage() {
 
           <div className="flex flex-col items-center justify-center gap-3 sm:flex-row">
             <button
-              onClick={() => setShowLogin(true)}
+              onClick={() => openSignIn({ afterSignInUrl: '/profile' })}
               className="group flex items-center gap-2 rounded-xl bg-accent px-7 py-3.5 text-[14px] font-semibold text-white shadow-glow transition-all duration-200 hover:bg-accent-h hover:shadow-none"
             >
               Deploy Engine
@@ -657,8 +516,7 @@ export default function LandingPage() {
         </div>
       </footer>
 
-      {/* ── Login Modal ───────────────────────────────────────────────────── */}
-      {showLogin && <LoginModal onClose={() => setShowLogin(false)} />}
+
     </div>
   )
 }

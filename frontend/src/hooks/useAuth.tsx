@@ -1,54 +1,59 @@
-import { createContext, useContext, useState, useCallback, type ReactNode } from 'react'
-import { authApi } from '@/lib/api'
+/**
+ * useAuth.tsx — Clerk-backed authentication hook.
+ *
+ * Wraps @clerk/clerk-react to expose a consistent `useAuth()` interface
+ * used throughout the app, and wires the Clerk session token into the
+ * Axios API instance (via setTokenProvider in api.ts).
+ */
+import { useAuth as useClerkAuth, useUser } from '@clerk/clerk-react'
+import { useEffect, type ReactNode } from 'react'
+import { setTokenProvider } from '@/lib/api'
 
-// Demo credentials — skips the backend auth call entirely so login works
-// even when the backend is not running. The stored value is the backend's
-// static JWT_SECRET bypass which the backend also accepts as a valid bearer.
-const DEMO_USERNAME = 'admin'
-const DEMO_PASSWORD = 'admin@gst123'
-const DEMO_TOKEN    = 'gst-recon-super-secret-key-change-in-production'
+/**
+ * Drop-in AuthProvider kept for backward compatibility.
+ * ClerkProvider (in main.tsx) is the real auth boundary — this just
+ * registers the Clerk token getter with the API layer once.
+ */
+function ClerkTokenSync() {
+  const { getToken } = useClerkAuth()
+
+  useEffect(() => {
+    setTokenProvider(() => getToken())
+  }, [getToken])
+
+  return null
+}
+
+export function AuthProvider({ children }: { children: ReactNode }) {
+  return (
+    <>
+      <ClerkTokenSync />
+      {children}
+    </>
+  )
+}
 
 interface AuthCtx {
-  token: string | null
   isAuthenticated: boolean
-  login: (username: string, password: string) => Promise<void>
+  isLoaded: boolean
+  username: string
   logout: () => void
 }
 
-const Ctx = createContext<AuthCtx | null>(null)
-
-export function AuthProvider({ children }: { children: ReactNode }) {
-  const [token, setToken] = useState<string | null>(
-    () => localStorage.getItem('gst_token')
-  )
-
-  const login = useCallback(async (username: string, password: string) => {
-    // Short-circuit for demo credentials — no network call needed
-    if (username === DEMO_USERNAME && password === DEMO_PASSWORD) {
-      localStorage.setItem('gst_token', DEMO_TOKEN)
-      setToken(DEMO_TOKEN)
-      return
-    }
-    // Fallback: real JWT exchange when backend is fully wired
-    const { data } = await authApi.login(username, password)
-    localStorage.setItem('gst_token', data.access_token)
-    setToken(data.access_token)
-  }, [])
-
-  const logout = useCallback(() => {
-    localStorage.removeItem('gst_token')
-    setToken(null)
-  }, [])
-
-  return (
-    <Ctx.Provider value={{ token, isAuthenticated: !!token, login, logout }}>
-      {children}
-    </Ctx.Provider>
-  )
-}
-
 export function useAuth(): AuthCtx {
-  const ctx = useContext(Ctx)
-  if (!ctx) throw new Error('useAuth must be used within AuthProvider')
-  return ctx
+  const { isSignedIn, isLoaded, signOut } = useClerkAuth()
+  const { user } = useUser()
+
+  const username =
+    user?.username ??
+    (user?.firstName ? `${user.firstName} ${user.lastName ?? ''}`.trim() : null) ??
+    user?.primaryEmailAddress?.emailAddress ??
+    'User'
+
+  return {
+    isAuthenticated: !!isSignedIn,
+    isLoaded,
+    username,
+    logout: () => signOut(),
+  }
 }
