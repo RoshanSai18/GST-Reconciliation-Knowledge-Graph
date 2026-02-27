@@ -29,3 +29,5 @@ networkx==3.4.2
 
 # Environment variable loading
 python-dotenv==1.0.1
+# AI & Chatbot
+google-generativeai==0.3.0

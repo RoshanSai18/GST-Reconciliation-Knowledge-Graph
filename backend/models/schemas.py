@@ -413,7 +413,25 @@ class PathHop(BaseModel):
 
 class InvoiceDetail(BaseModel):
     """Full invoice detail returned by GET /invoices/{invoice_id}."""
-    invoice:          InvoiceResponse
+    # Flattened invoice fields from InvoiceResponse
+    invoice_id:           str
+    invoice_number:       str
+    invoice_date:         str
+    supplier_gstin:       str
+    buyer_gstin:          str
+    gstr1_taxable_value:  float | None = None
+    pr_taxable_value:     float | None = None
+    taxable_value:        float | None = None
+    cgst:                 float = 0.0
+    sgst:                 float = 0.0
+    igst:                 float = 0.0
+    total_value:          float
+    source_type:          SourceType | None = None
+    confidence_score:     float | None = None
+    status:               InvoiceStatus = InvoiceStatus.PENDING
+    risk_level:           RiskLevel | None = None
+    explanation:          str | None = None
+    # Detail-specific fields
     value_comparison: ValueComparison | None = None
     path_hops:        list[PathHop] = Field(default_factory=list)
     payments:         list[TaxPaymentResponse] = Field(default_factory=list)

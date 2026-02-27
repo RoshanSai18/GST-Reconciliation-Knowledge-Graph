@@ -75,15 +75,17 @@ function layoutNodes(nodes: CyNode[], edges: CyEdge[], w: number, h: number) {
 const W = 920, H = 580
 
 export default function GraphPage() {
-  const [gstin,   setGstin]   = useState('')
-  const [depth,   setDepth]   = useState<1 | 2>(1)
-  const [loading, setLoading] = useState(false)
-  const [graph,   setGraph]   = useState<CyGraph | null>(null)
-  const [mode,    setMode]    = useState<'overview' | 'subgraph'>('overview')
-  const [hover,   setHover]   = useState<CyNode | null>(null)
-  const [zoom,    setZoom]    = useState(1)
-  const [pan,     setPan]     = useState({ x: 0, y: 0 })
-  const [dragging,setDragging]= useState(false)
+  const [gstin,    setGstin]   = useState('')
+  const [depth,    setDepth]   = useState<1 | 2>(1)
+  const [loading,  setLoading] = useState(false)
+  const [error,    setError]   = useState<string | null>(null)
+  const [graph,    setGraph]   = useState<CyGraph | null>(null)
+  const [mode,     setMode]    = useState<'overview' | 'subgraph'>('overview')
+  const [hover,    setHover]   = useState<CyNode | null>(null)
+  const [hoverType, setHoverType] = useState<string | null>(null)
+  const [zoom,     setZoom]    = useState(1)
+  const [pan,      setPan]     = useState({ x: 0, y: 0 })
+  const [dragging, setDragging]= useState(false)
   const dragStart = useRef<{ mx: number; my: number; px: number; py: number } | null>(null)
   const svgRef    = useRef<SVGSVGElement>(null)
   const [pos, setPos] = useState<Record<string, { x: number; y: number }>>({})
@@ -112,16 +114,45 @@ export default function GraphPage() {
 
   useEffect(() => { loadOverview() }, [loadOverview])
 
+  // Auto-reload subgraph when depth changes
+  useEffect(() => {
+    if (mode === 'subgraph' && gstin.trim()) {
+      setLoading(true)
+      const g = gstin.toUpperCase()
+      graphApi.subgraph(g, depth)
+        .then(r => setGraph(r.data))
+        .catch(() => setGraph(null))
+        .finally(() => setLoading(false))
+    }
+  }, [depth, mode, gstin])
+
   async function handleVisualize(targetGstin?: string) {
     const g = (targetGstin ?? gstin).trim().toUpperCase()
-    if (!g) return
+    if (!g) {
+      setError('Please enter a GSTIN to search')
+      return
+    }
     setGstin(g)
+    setError(null)
     setLoading(true)
+    console.log(`[Graph] Searching: GSTIN="${g}", Depth=${depth}`)
     try {
       const r = await graphApi.subgraph(g, depth)
-      setGraph(r.data)
-      setMode('subgraph')
-    } catch {
+      console.log(`[Graph] Response:`, r.data)
+      if (r.data && r.data.node_count > 0) {
+        console.log(`[Graph] Success: ${r.data.node_count} nodes, ${r.data.edge_count} edges`)
+        setGraph(r.data)
+        setMode('subgraph')
+        setError(null)
+      } else {
+        console.log(`[Graph] No results for "${g}" at depth ${depth}`)
+        setError(`No results found for "${g}" at depth ${depth}`)
+        setGraph(null)
+      }
+    } catch (err: any) {
+      console.error(`[Graph] API Error:`, err)
+      const msg = err?.response?.data?.detail || err?.message || 'Failed to load graph'
+      setError(`Error: ${msg}`)
       setGraph(null)
     } finally {
       setLoading(false)
@@ -168,12 +199,21 @@ export default function GraphPage() {
           <Search size={13} className="absolute left-3 top-1/2 -translate-y-1/2 text-subtle" />
           <input
             type="text"
-            placeholder="Enter GSTIN to drill down…"
+            placeholder="Search GSTIN…"
             value={gstin}
-            onChange={e => setGstin(e.target.value)}
-            onKeyDown={e => e.key === 'Enter' && handleVisualize()}
-            className="w-full bg-surface rounded-xl pl-8 pr-3 py-2 text-sm placeholder:text-subtle focus:outline-none focus:ring-2 focus:ring-accent/25 transition-all"
-            style={{ border: '1px solid #E4E4E7' }}
+            onChange={e => {
+              setGstin(e.target.value.toUpperCase())
+              setError(null)
+            }}
+            onKeyDown={e => {
+              if (e.key === 'Enter') {
+                handleVisualize()
+              }
+            }}
+            className={`w-full bg-surface rounded-xl pl-8 pr-3 py-2 text-sm placeholder:text-subtle focus:outline-none focus:ring-2 transition-all ${
+              error ? 'focus:ring-danger/25' : 'focus:ring-accent/25'
+            }`}
+            style={{ border: error ? '1px solid #ef4444' : '1px solid #E4E4E7' }}
           />
         </div>
 
@@ -207,7 +247,13 @@ export default function GraphPage() {
           <RefreshCw size={14} className={loading ? 'animate-spin' : ''} />
         </button>
 
-        {graph && (
+        {error && (
+          <div className="ml-auto flex items-center gap-2 text-xs text-danger bg-danger/8 border border-danger/25 rounded-lg px-3 py-1.5">
+            <span>⚠️</span>
+            <span>{error}</span>
+          </div>
+        )}
+        {!error && graph && (
           <span className="text-xs text-muted ml-auto">
             {mode === 'overview'
               ? <span className="font-semibold text-accent">Overview</span>
@@ -221,12 +267,25 @@ export default function GraphPage() {
       {/* Legend */}
       <div className="flex flex-wrap gap-3">
         {Object.entries(TYPE_COLORS).map(([t, c]) => (
-          <div key={t} className="flex items-center gap-1.5 text-xs text-muted">
+          <div
+            key={t}
+            onMouseEnter={() => setHoverType(t)}
+            onMouseLeave={() => setHoverType(null)}
+            className={`flex items-center gap-1.5 text-xs px-2.5 py-1 rounded-lg cursor-pointer transition-all ${
+              hoverType === t ? 'bg-accent/15 text-accent font-medium' : 'text-muted hover:text-foreground'
+            }`}
+          >
             <div className="w-3 h-3 rounded-full" style={{ background: c }} />
             {t}
           </div>
         ))}
-        <div className="flex items-center gap-1.5 text-xs text-muted">
+        <div
+          onMouseEnter={() => setHoverType('High-Risk')}
+          onMouseLeave={() => setHoverType(null)}
+          className={`flex items-center gap-1.5 text-xs px-2.5 py-1 rounded-lg cursor-pointer transition-all ${
+            hoverType === 'High-Risk' ? 'bg-danger/15 text-danger font-medium' : 'text-muted hover:text-foreground'
+          }`}
+        >
           <div className="w-3 h-3 rounded-full bg-danger" />
           High-Risk
         </div>
@@ -321,12 +380,18 @@ export default function GraphPage() {
               const color = nodeColor(n)
               const isAlert = n.data.risk_level === 'High-Risk'
               const isTaxpayer = n.data.type === 'Taxpayer'
+              const isHovered = hover?.data.id === n.data.id
+              const isTypeHighlighted = hoverType && (hoverType === n.data.type || (hoverType === 'High-Risk' && isAlert))
               return (
                 <g
                   key={n.data.id}
                   data-node="1"
                   transform={`translate(${p.x},${p.y})`}
-                  style={{ cursor: isTaxpayer ? 'pointer' : 'default' }}
+                  style={{
+                    cursor: isTaxpayer ? 'pointer' : 'default',
+                    opacity: hoverType && !isTypeHighlighted ? 0.2 : 1,
+                    transition: 'opacity 0.2s'
+                  }}
                   onClick={() => handleNodeClick(n)}
                   onMouseEnter={() => setHover(n)}
                   onMouseLeave={() => setHover(null)}

@@ -134,6 +134,17 @@ export const uploadApi = {
   taxPayments: (file: File) => upload('/upload/tax-payments', file),
 }
 
+export const chatApi = {
+  sendMessage: (message: string, language: string = 'en', session_id?: string) =>
+    api.post('/chat/message', { message, language, session_id }),
+  clearSession: (session_id: string) =>
+    api.delete(`/chat/session/${session_id}`),
+  health: () =>
+    api.get('/chat/health'),
+}
+
+export { api }
+
 function upload(url: string, file: File) {
   const fd = new FormData()
   fd.append('file', file)

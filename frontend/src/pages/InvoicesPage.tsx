@@ -18,10 +18,20 @@ interface Invoice {
 }
 
 interface InvoiceDetail extends Invoice {
-  value_comparison?: { gstr1_taxable_value?: number; authoritative_value?: number; difference?: number; within_tolerance?: boolean }
+  gstr1_taxable_value?: number
+  pr_taxable_value?: number
+  taxable_value?: number
+  cgst?: number
+  sgst?: number
+  igst?: number
+  source_type?: string
+  confidence_score?: number
+  value_comparison?: { gstr1_taxable_value?: number; pr_taxable_value?: number; authoritative_value?: number; difference?: number; difference_pct?: number; within_tolerance?: boolean }
   path_hops?:        { hop: string; present: boolean }[]
   payments?:         { payment_id: string; amount_paid: number; payment_date: string; payment_mode?: string }[]
-  gstr1?:            { return_id: string; period: string; filing_date: string } | null
+  gstr1?:            { return_id: string; gstin: string; tax_period: string; filing_date: string } | null
+  gstr2b?:           { return_id: string; gstin: string; tax_period: string; generation_date: string } | null
+  gstr3b?:           { return_id: string; gstin: string; tax_period: string; filing_date: string; tax_payable?: number; tax_paid?: number } | null
   amends?:           string | null
   amended_by?:       string | null
 }
@@ -43,15 +53,26 @@ export default function InvoicesPage() {
   const load = useCallback(() => {
     setLoading(true)
     const params: Record<string, unknown> = { page, per_page: perPage }
-    if (gstin)  params.gstin  = gstin.toUpperCase()
+    const searchTerm = gstin.trim().toUpperCase()
+    if (searchTerm) {
+      // Send as both gstin and invoice_number - backend will match either
+      params.gstin = searchTerm
+      params.invoice_number = searchTerm
+      console.log(`[Invoices] Searching for: "${searchTerm}"`)
+    }
     if (status) params.status = status
     invoicesApi.list(params)
       .then(r => {
         const d = r.data as { items: Invoice[]; total: number }
+        console.log(`[Invoices] Found ${d.total ?? 0} total, displaying ${(d.items ?? []).length}`)
         setItems(d.items ?? [])
         setTotal(d.total ?? 0)
       })
-      .catch(() => {})
+      .catch(err => {
+        console.error(`[Invoices] API error:`, err)
+        setItems([])
+        setTotal(0)
+      })
       .finally(() => setLoading(false))
   }, [page, perPage, gstin, status])
 
@@ -102,7 +123,7 @@ export default function InvoicesPage() {
           <Search size={13} className="absolute left-3 top-1/2 -translate-y-1/2 text-subtle" />
           <input
             type="text"
-            placeholder="Filter by GSTIN…"
+            placeholder="Search GSTIN or Invoice Number…"
             value={gstin}
             onChange={e => { setGstin(e.target.value); setPage(1) }}
             className="w-full bg-surface rounded-xl pl-8 pr-3 py-2 text-[13px] placeholder:text-subtle focus:outline-none focus:ring-2 focus:ring-accent/25 transition-all"
@@ -257,6 +278,30 @@ export default function InvoicesPage() {
                   </div>
                 )}
 
+                {/* Value Comparison */}
+                {selected.value_comparison && (
+                  <div className="bg-info/8 border border-info/25 rounded-lg px-4 py-3 text-sm">
+                    <p className="text-xs font-semibold text-info mb-3">Value Comparison</p>
+                    <dl className="space-y-2 text-sm">
+                      {selected.value_comparison.gstr1_taxable_value != null && (
+                        <div className="flex justify-between"><dt className="text-muted">GSTR-1 Value</dt><dd className="font-mono">{fmtCurrency(selected.value_comparison.gstr1_taxable_value, 2)}</dd></div>
+                      )}
+                      {selected.value_comparison.authoritative_value != null && (
+                        <div className="flex justify-between"><dt className="text-muted">Authoritative Value</dt><dd className="font-mono">{fmtCurrency(selected.value_comparison.authoritative_value, 2)}</dd></div>
+                      )}
+                      {selected.value_comparison.difference != null && (
+                        <div className="flex justify-between"><dt className="text-muted">Difference</dt><dd className={`font-mono ${selected.value_comparison.difference > 0 ? 'text-warning' : 'text-success'}`}>{fmtCurrency(selected.value_comparison.difference, 2)}</dd></div>
+                      )}
+                      {selected.value_comparison.difference_pct != null && (
+                        <div className="flex justify-between"><dt className="text-muted">Diff %</dt><dd className="font-mono">{selected.value_comparison.difference_pct.toFixed(2)}%</dd></div>
+                      )}
+                      {selected.value_comparison.within_tolerance !== undefined && (
+                        <div className="flex justify-between"><dt className="text-muted">Within Tolerance</dt><dd className="font-mono">{selected.value_comparison.within_tolerance ? '✓' : '✗'}</dd></div>
+                      )}
+                    </dl>
+                  </div>
+                )}
+
                 {/* Path hops */}
                 {selected.path_hops && selected.path_hops.length > 0 && (
                   <div>
@@ -272,6 +317,41 @@ export default function InvoicesPage() {
                     </div>
                   </div>
                 )}
+
+                {/* GSTR Returns */}
+                <div className="space-y-3">
+                  {selected.gstr1 && (
+                    <div className="border border-border rounded-lg px-4 py-3">
+                      <p className="text-xs font-semibold text-accent mb-2">GSTR-1</p>
+                      <dl className="grid grid-cols-2 gap-2 text-xs">
+                        <div><dt className="text-muted">Return ID</dt><dd className="font-mono">{selected.gstr1.return_id}</dd></div>
+                        <div><dt className="text-muted">Period</dt><dd className="font-mono">{selected.gstr1.tax_period}</dd></div>
+                        <div className="col-span-2"><dt className="text-muted">Filing Date</dt><dd className="font-mono">{fmtDate(selected.gstr1.filing_date)}</dd></div>
+                      </dl>
+                    </div>
+                  )}
+                  {selected.gstr2b && (
+                    <div className="border border-border rounded-lg px-4 py-3">
+                      <p className="text-xs font-semibold text-accent mb-2">GSTR-2B</p>
+                      <dl className="grid grid-cols-2 gap-2 text-xs">
+                        <div><dt className="text-muted">Return ID</dt><dd className="font-mono">{selected.gstr2b.return_id}</dd></div>
+                        <div><dt className="text-muted">Period</dt><dd className="font-mono">{selected.gstr2b.tax_period}</dd></div>
+                        <div className="col-span-2"><dt className="text-muted">Generated</dt><dd className="font-mono">{fmtDate(selected.gstr2b.generation_date)}</dd></div>
+                      </dl>
+                    </div>
+                  )}
+                  {selected.gstr3b && (
+                    <div className="border border-border rounded-lg px-4 py-3">
+                      <p className="text-xs font-semibold text-accent mb-2">GSTR-3B</p>
+                      <dl className="grid grid-cols-2 gap-2 text-xs">
+                        <div><dt className="text-muted">Return ID</dt><dd className="font-mono">{selected.gstr3b.return_id}</dd></div>
+                        <div><dt className="text-muted">Period</dt><dd className="font-mono">{selected.gstr3b.tax_period}</dd></div>
+                        <div><dt className="text-muted">Tax Payable</dt><dd className="font-mono">{fmtCurrency(selected.gstr3b.tax_payable ?? 0, 2)}</dd></div>
+                        <div><dt className="text-muted">Tax Paid</dt><dd className="font-mono">{fmtCurrency(selected.gstr3b.tax_paid ?? 0, 2)}</dd></div>
+                      </dl>
+                    </div>
+                  )}
+                </div>
 
                 {/* Payments */}
                 {selected.payments && selected.payments.length > 0 && (

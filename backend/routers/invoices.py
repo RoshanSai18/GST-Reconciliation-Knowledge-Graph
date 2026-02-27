@@ -74,6 +74,7 @@ _COUNT_QUERY = "MATCH (i:Invoice) RETURN count(i) AS total"
 _FILTER_QUERY = """
 MATCH (i:Invoice)
 WHERE ($gstin IS NULL OR i.seller_gstin = $gstin OR i.buyer_gstin = $gstin)
+  AND ($invoice_number IS NULL OR i.invoice_no = $invoice_number OR i.invoice_no CONTAINS $invoice_number)
   AND ($status IS NULL OR i.status = $status)
 WITH i
 ORDER BY i.invoice_date DESC, i.invoice_id ASC
@@ -94,6 +95,7 @@ RETURN
 _FILTER_COUNT_QUERY = """
 MATCH (i:Invoice)
 WHERE ($gstin IS NULL OR i.seller_gstin = $gstin OR i.buyer_gstin = $gstin)
+  AND ($invoice_number IS NULL OR i.invoice_no = $invoice_number OR i.invoice_no CONTAINS $invoice_number)
   AND ($status IS NULL OR i.status = $status)
 RETURN count(i) AS total
 """
@@ -133,18 +135,19 @@ def list_invoices(
     page:   int       = Query(1,    ge=1),
     per_page: int     = Query(50,   ge=1, le=500),
     gstin:  str | None = Query(None, description="Filter by seller or buyer GSTIN"),
+    invoice_number: str | None = Query(None, description="Filter by invoice number (partial match)"),
     status: str | None = Query(None, description="Filter by status (Valid/Warning/High-Risk/Pending)"),
 ) -> PaginatedInvoices:
-    """Return paginated invoices, optionally filtered by GSTIN or status."""
+    """Return paginated invoices, optionally filtered by GSTIN, invoice number, or status."""
     skip = (page - 1) * per_page
 
     try:
-        if gstin or status:
+        if gstin or invoice_number or status:
             rows  = run_query(_FILTER_QUERY,
                               {"skip": skip, "limit": per_page,
-                               "gstin": gstin, "status": status})
+                               "gstin": gstin, "invoice_number": invoice_number, "status": status})
             total = (run_query(_FILTER_COUNT_QUERY,
-                               {"gstin": gstin, "status": status}) or [{}])[0].get("total", 0)
+                               {"gstin": gstin, "invoice_number": invoice_number, "status": status}) or [{}])[0].get("total", 0)
         else:
             rows  = run_query(_LIST_QUERY, {"skip": skip, "limit": per_page})
             total = (run_query(_COUNT_QUERY) or [{}])[0].get("total", 0)
@@ -310,8 +313,28 @@ def invoice_detail(invoice_id: str) -> InvoiceDetail:
 
     payments = [r for r in (_build_payment(p) for p in payments_raw) if r]
 
+    inv_response = _build_invoice_response(inv)
+    
     return InvoiceDetail(
-        invoice          = _build_invoice_response(inv),
+        # Flattened invoice fields from InvoiceResponse
+        invoice_id           = inv_response.invoice_id,
+        invoice_number       = inv_response.invoice_number,
+        invoice_date         = inv_response.invoice_date,
+        supplier_gstin       = inv_response.supplier_gstin,
+        buyer_gstin          = inv_response.buyer_gstin,
+        gstr1_taxable_value  = inv_response.gstr1_taxable_value,
+        pr_taxable_value     = inv_response.pr_taxable_value,
+        taxable_value        = inv_response.taxable_value,
+        cgst                 = inv_response.cgst,
+        sgst                 = inv_response.sgst,
+        igst                 = inv_response.igst,
+        total_value          = inv_response.total_value,
+        source_type          = inv_response.source_type,
+        confidence_score     = inv_response.confidence_score,
+        status               = inv_response.status,
+        risk_level           = inv_response.risk_level,
+        explanation          = inv_response.explanation,
+        # Detail-specific fields
         value_comparison = vc,
         path_hops        = path_hops,
         payments         = payments,

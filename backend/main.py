@@ -106,13 +106,14 @@ def _register_router(module_path: str, prefix: str, tags: list[str]) -> None:
         logger.debug("Router not yet implemented, skipping: %s", module_path)
 
 
-_register_router("routers.auth",      "/auth",      ["Authentication"])
-_register_router("routers.upload",    "/upload",    ["Data Ingestion"])
-_register_router("routers.reconcile", "/reconcile", ["Reconciliation"])
-_register_router("routers.invoices",  "/invoices",  ["Invoices"])
-_register_router("routers.vendors",   "/vendors",   ["Vendors"])
-_register_router("routers.patterns",  "/patterns",  ["Pattern Detection"])
-_register_router("routers.graph",     "/graph",     ["Graph Export"])
+_register_router("routers.auth",      "/api/auth",      ["Authentication"])
+_register_router("routers.upload",    "/api/upload",    ["Data Ingestion"])
+_register_router("routers.reconcile", "/api/reconcile", ["Reconciliation"])
+_register_router("routers.invoices",  "/api/invoices",  ["Invoices"])
+_register_router("routers.vendors",   "/api/vendors",   ["Vendors"])
+_register_router("routers.patterns",  "/api/patterns",  ["Pattern Detection"])
+_register_router("routers.graph",     "/api/graph",     ["Graph Export"])
+_register_router("routers.chat",      "/api/chat",      ["Chat"])
 
 
 # ---------------------------------------------------------------------------

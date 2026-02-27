@@ -9,6 +9,7 @@ import {
   LogOut,
   GitMerge,
   ChevronRight,
+  MessageSquare,
   UserCircle,
 } from 'lucide-react'
 import { useAuth } from '@/hooks/useAuth'
