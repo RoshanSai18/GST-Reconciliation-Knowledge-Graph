@@ -26,7 +26,7 @@ from models.schemas import PaymentDelayResult, RiskLevel
 logger = logging.getLogger(__name__)
 
 _DELAY_QUERY = """
-MATCH (i:Invoice)-[:ISSUED_BY]->(t:Taxpayer)
+MATCH (i:Invoice)-[:ISSUED_BY]->(t:Taxpayer {user_id: $uid})
 MATCH (i)-[:PAID_VIA]->(p:TaxPayment)
 WHERE i.invoice_date IS NOT NULL AND p.payment_date IS NOT NULL
 WITH
@@ -45,7 +45,7 @@ ORDER BY avg_delay DESC
 """
 
 
-def detect_payment_delays(min_invoices: int = 1) -> list[PaymentDelayResult]:
+def detect_payment_delays(min_invoices: int = 1, user_id: str = "") -> list[PaymentDelayResult]:
     """
     Detect vendors with above-grace-period payment delays.
 
@@ -53,9 +53,11 @@ def detect_payment_delays(min_invoices: int = 1) -> list[PaymentDelayResult]:
     ----------
     min_invoices : int
         Minimum number of delayed invoices required to flag a vendor.
+    user_id : str
+        Clerk user ID — only queries this user's data.
     """
     try:
-        rows = run_query(_DELAY_QUERY)
+        rows = run_query(_DELAY_QUERY, {"uid": user_id or ""})
     except Exception as exc:
         logger.error("Payment delay query failed: %s", exc)
         return []

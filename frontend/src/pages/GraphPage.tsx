@@ -1,5 +1,6 @@
 import { useState, useRef, useEffect, useCallback } from 'react'
-import { Search, ZoomIn, ZoomOut, Maximize2, RefreshCw, ArrowLeft } from 'lucide-react'
+import { Link } from 'react-router-dom'
+import { Search, ZoomIn, ZoomOut, Maximize2, RefreshCw, ArrowLeft, Upload } from 'lucide-react'
 import { graphApi, type CyGraph, type CyNode, type CyEdge } from '@/lib/api'
 
 /* ---------- Color map ---------- */
@@ -12,7 +13,7 @@ const TYPE_COLORS: Record<string, string> = {
   TaxPayment: '#0284C7',
 }
 function nodeColor(n: CyNode) {
-  if (n.data.risk_level === 'High-Risk') return '#EF4444'
+  if (n.data.risk_level === 'High-Risk' || n.data.risk_level === 'High') return '#EF4444'
   return TYPE_COLORS[n.data.type] ?? '#94A3B8'
 }
 
@@ -328,9 +329,13 @@ export default function GraphPage() {
 
         {/* Empty / loading states */}
         {!graph && !loading && (
-          <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 text-muted text-sm">
-            <div className="text-4xl">🕸️</div>
-            <p>No data yet. Upload files first, then the graph will appear here.</p>
+          <div className="absolute inset-0 flex flex-col items-center justify-center gap-4 text-muted text-sm">
+            <Upload size={28} className="opacity-40" />
+            <div className="text-center">
+              <p className="font-semibold text-[14px] text-foreground">No graph data yet</p>
+              <p className="text-[12px] mt-1">Upload your GST files first — the knowledge graph will appear here</p>
+            </div>
+            <Link to="/upload" className="text-[12px] font-semibold text-accent hover:underline">Go to Upload →</Link>
           </div>
         )}
         {loading && (
@@ -357,7 +362,7 @@ export default function GraphPage() {
             {graph.edges.map(e => {
               const a = pos[e.data.source], b = pos[e.data.target]
               if (!a || !b) return null
-              const isAlert = e.data.risk_level === 'High-Risk'
+              const isAlert = e.data.risk_level === 'High-Risk' || e.data.risk_level === 'High'
               const mx = (a.x + b.x) / 2, my = (a.y + b.y) / 2
               return (
                 <g key={e.data.id}>
@@ -378,7 +383,7 @@ export default function GraphPage() {
               const p = pos[n.data.id]
               if (!p) return null
               const color = nodeColor(n)
-              const isAlert = n.data.risk_level === 'High-Risk'
+              const isAlert = n.data.risk_level === 'High-Risk' || n.data.risk_level === 'High'
               const isTaxpayer = n.data.type === 'Taxpayer'
               const isHovered = hover?.data.id === n.data.id
               const isTypeHighlighted = hoverType && (hoverType === n.data.type || (hoverType === 'High-Risk' && isAlert))

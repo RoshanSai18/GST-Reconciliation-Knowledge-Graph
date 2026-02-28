@@ -150,6 +150,11 @@ export const whatsappApi = {
     api.post('/whatsapp/send-report', { to, analysis }),
 }
 
+export const sessionApi = {
+  /** Call this before clerk.signOut() to delete all Neo4j data for the user. */
+  deleteSession: () => api.delete('/session'),
+}
+
 export { api }
 
 function upload(url: string, file: File) {

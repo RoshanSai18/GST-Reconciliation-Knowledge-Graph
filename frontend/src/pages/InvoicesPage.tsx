@@ -1,5 +1,6 @@
 import { useEffect, useState, useCallback } from 'react'
-import { Search, ChevronLeft, ChevronRight, X, ExternalLink, RefreshCw } from 'lucide-react'
+import { Link } from 'react-router-dom'
+import { Search, ChevronLeft, ChevronRight, X, ExternalLink, RefreshCw, Upload } from 'lucide-react'
 import RiskBadge from '@/components/shared/RiskBadge'
 import { TableSkeleton } from '@/components/shared/Skeleton'
 import { invoicesApi, reconcileApi } from '@/lib/api'
@@ -176,8 +177,13 @@ export default function InvoicesPage() {
             <tbody>
               {loading && <TableSkeleton rows={10} cols={8} />}
               {!loading && items.length === 0 && (
-                <tr><td colSpan={8} className="text-center py-16 text-muted text-sm">
-                  No invoices found. Upload data and run reconciliation first.
+                <tr><td colSpan={8} className="text-center py-16">
+                  <div className="flex flex-col items-center gap-3">
+                    <Upload size={22} className="text-muted" />
+                    <p className="text-[13px] font-semibold text-foreground">No invoices found</p>
+                    <p className="text-[12px] text-muted">Upload your GST files and run reconciliation to populate this table</p>
+                    <Link to="/upload" className="mt-1 text-[12px] font-semibold text-accent hover:underline">Go to Upload →</Link>
+                  </div>
                 </td></tr>
               )}
               {!loading && items.map(inv => (

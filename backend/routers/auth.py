@@ -121,12 +121,14 @@ def require_jwt(
     payload = _verify_clerk_token(creds.credentials)
 
     # Clerk tokens use `sub` as the Clerk user ID; email is in `email`
+    user_id:  str = payload.get("sub", "")
     username: str = (
         payload.get("email")
         or payload.get("primary_email_address")
-        or payload.get("sub", "unknown")
+        or user_id
+        or "unknown"
     )
-    return CurrentUser(username=username, role="admin")
+    return CurrentUser(username=username, user_id=user_id, role="admin")
 
 
 # ---------------------------------------------------------------------------

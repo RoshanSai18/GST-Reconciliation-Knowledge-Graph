@@ -15,37 +15,17 @@ import logging
 from typing import Annotated, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
-from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 
-import config
 from database.neo4j_client import run_query
-from models.schemas import InvoiceStatus, ReconciliationSummary
+from models.schemas import CurrentUser, InvoiceStatus, ReconciliationSummary
+from routers.auth import require_jwt
 from services.reconciliation import engine
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(tags=["Reconciliation"])
 
-# ---------------------------------------------------------------------------
-# Auth dependency (same lightweight guard as upload router; Phase 10 replaces)
-# ---------------------------------------------------------------------------
-
-_bearer = HTTPBearer(auto_error=True)
-
-
-def _verify_token(
-    creds: Annotated[HTTPAuthorizationCredentials, Depends(_bearer)],
-) -> str:
-    if creds.credentials != config.JWT_SECRET:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Invalid or missing token",
-            headers={"WWW-Authenticate": "Bearer"},
-        )
-    return creds.credentials
-
-
-_AuthDep = Annotated[str, Depends(_verify_token)]
+_AuthDep = Annotated[CurrentUser, Depends(require_jwt)]
 
 # ---------------------------------------------------------------------------
 # POST /reconcile/run
@@ -64,7 +44,7 @@ _AuthDep = Annotated[str, Depends(_verify_token)]
     ),
 )
 def reconcile_run(
-    _token:     _AuthDep,
+    current_user: _AuthDep,
     gstin:      Annotated[Optional[str], Query(description="Taxpayer GSTIN to filter by")] = None,
     tax_period: Annotated[Optional[str], Query(description="Tax period (MMYYYY)")] = None,
     limit:      Annotated[Optional[int], Query(ge=1, le=50_000, description="Max invoices to process")] = None,
@@ -74,6 +54,7 @@ def reconcile_run(
             gstin=gstin,
             tax_period=tax_period,
             limit=limit,
+            user_id=current_user.user_id,
         )
     except Exception as exc:
         logger.exception("Reconciliation run failed: %s", exc)
@@ -97,12 +78,12 @@ def reconcile_run(
 )
 def reconcile_single(
     invoice_id: str,
-    _token: _AuthDep,
+    current_user: _AuthDep,
 ) -> ReconciliationSummary:
     from datetime import datetime, timezone
 
     try:
-        result = engine.reconcile_invoice(invoice_id)
+        result = engine.reconcile_invoice(invoice_id, user_id=current_user.user_id)
     except Exception as exc:
         logger.exception("Single-invoice reconciliation failed: %s", exc)
         raise HTTPException(
@@ -132,16 +113,16 @@ def reconcile_single(
 # ---------------------------------------------------------------------------
 
 _STATS_QUERY = """
-MATCH (i:Invoice)
+MATCH (i:Invoice {user_id: $uid})
 WHERE i.status IS NOT NULL
 RETURN i.status AS status, count(i) AS cnt
 UNION ALL
-MATCH (i:Invoice)
+MATCH (i:Invoice {user_id: $uid})
 WHERE i.status IS NULL
 RETURN 'pending' AS status, count(i) AS cnt
 """
 
-_TOTAL_QUERY = "MATCH (i:Invoice) RETURN count(i) AS total"
+_TOTAL_QUERY = "MATCH (i:Invoice {user_id: $uid}) RETURN count(i) AS total"
 
 
 @router.get(
@@ -153,10 +134,11 @@ _TOTAL_QUERY = "MATCH (i:Invoice) RETURN count(i) AS total"
         "Does NOT re-run reconciliation logic."
     ),
 )
-def reconcile_stats() -> ReconciliationSummary:
+def reconcile_stats(current_user: _AuthDep) -> ReconciliationSummary:
+    uid = current_user.user_id
     try:
-        rows  = run_query(_STATS_QUERY)
-        total = run_query(_TOTAL_QUERY)
+        rows  = run_query(_STATS_QUERY, {"uid": uid})
+        total = run_query(_TOTAL_QUERY, {"uid": uid})
     except Exception as exc:
         # Neo4j not running — return zero counts so the dashboard still loads
         logger.warning("Stats query failed (Neo4j unreachable?): %s", exc)

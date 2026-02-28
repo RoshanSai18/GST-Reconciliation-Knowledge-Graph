@@ -1,14 +1,15 @@
 ﻿import { useEffect, useState } from 'react'
+import { Link } from 'react-router-dom'
 import {
   IndianRupee, AlertTriangle, ShieldAlert, TrendingUp,
-  Activity, BarChart2, PieChart as PieIcon,
-  Zap, RefreshCw, XCircle, CheckCircle2,
+  Activity, BarChart2,
+  Zap, RefreshCw, XCircle, CheckCircle2, Upload,
 } from 'lucide-react'
 import TrustGauge from '@/components/shared/TrustGauge'
 import {
   AreaChart, Area,
   BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer,
-  PieChart, Pie, Cell, Legend,
+  Cell,
 } from 'recharts'
 import StatCard from '@/components/shared/StatCard'
 import { graphApi, reconcileApi, vendorsApi } from '@/lib/api'
@@ -95,36 +96,26 @@ export default function DashboardPage() {
   }, [])
 
   // â”€â”€ KPI derivation â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
-  const totalInvoices   = rStats?.total     ?? gStats?.nodes?.Invoice ?? 11390
-  const highRisk        = rStats?.high_risk ?? 11390
+  const totalInvoices   = rStats?.total     ?? gStats?.nodes?.Invoice ?? 0
+  const highRisk        = rStats?.high_risk ?? 0
   const itcClaimed      = fmtCurrency(totalInvoices * 8500)
   const itcAtRisk       = fmtCurrency(highRisk * 4200)
-  const vendorCount     = vendors?.total    ?? gStats?.nodes?.Taxpayer ?? 102
+  const vendorCount     = vendors?.total    ?? gStats?.nodes?.Taxpayer ?? 0
   const highRiskVendors = vendors?.high     ?? 0
+
+  // ── Empty state ──────────────────────────────────────────────────────────────
+  const isEmpty = !loading && (gStats?.total_nodes ?? 0) === 0 && !rStats
 
   // â”€â”€ Bar chart data â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   const barData = [
     { name: 'Valid',     value: rStats?.valid     ?? 0    },
     { name: 'Warning',   value: rStats?.warning   ?? 0    },
-    { name: 'High-Risk', value: rStats?.high_risk ?? 11390},
+    { name: 'High-Risk', value: rStats?.high_risk ?? 0},
     { name: 'Pending',   value: rStats?.pending   ?? 0    },
   ]
   const BAR_COLORS: Record<string, string> = {
     Valid: '#059669', Warning: '#D97706', 'High-Risk': '#B91C1C', Pending: '#A1A1AA',
   }
-
-  // â”€â”€ Pie (donut) chart data â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
-  const rawPie = gStats
-    ? Object.entries(gStats.nodes).map(([k, v]) => ({ name: k, value: v }))
-    : [
-        { name: 'Invoice',    value: 5180 },
-        { name: 'TaxPayment', value: 4930 },
-        { name: 'GSTR2B',     value: 620  },
-        { name: 'GSTR3B',     value: 600  },
-        { name: 'GSTR1',      value: 560  },
-        { name: 'Taxpayer',   value: 100  },
-      ]
-  const PIE_COLORS = ['#4F46E5', '#059669', '#D97706', '#B91C1C', '#65A30D', '#0EA5E9']
 
   // â”€â”€ Trend data (augment with real if available) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
   const trendData = rStats
@@ -134,6 +125,26 @@ export default function DashboardPage() {
           : m
       )
     : MOCK_TREND
+
+  if (isEmpty) {
+    return (
+      <div className="flex flex-col items-center justify-center py-32 gap-6 animate-fade-in">
+        <div className="w-16 h-16 rounded-2xl bg-surface shadow-card flex items-center justify-center">
+          <Upload size={28} className="text-muted" />
+        </div>
+        <div className="text-center">
+          <p className="text-[16px] font-bold text-foreground">No data yet</p>
+          <p className="text-[13px] text-muted mt-1">Upload your GST files to see the dashboard analytics</p>
+        </div>
+        <Link
+          to="/upload"
+          className="bg-accent hover:bg-accent-h text-white text-[13px] font-semibold px-6 py-2.5 rounded-xl transition-all shadow-glow"
+        >
+          Go to Upload →
+        </Link>
+      </div>
+    )
+  }
 
   return (
     <div className="space-y-6 animate-fade-in">
@@ -172,7 +183,7 @@ export default function DashboardPage() {
       </div>
 
       {/* â”€â”€ Row 2: Charts â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */}
-      <div className="grid grid-cols-1 xl:grid-cols-3 gap-6">
+      <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
 
         {/* 1 â€” Invoice Volume Trend (area-line) */}
         <ChartCard
@@ -235,43 +246,6 @@ export default function DashboardPage() {
               </Bar>
             </BarChart>
           </ResponsiveContainer>
-        </ChartCard>
-
-        {/* 3 â€” Knowledge Graph Nodes Donut */}
-        <ChartCard
-          icon={PieIcon}
-          title="Knowledge Graph Nodes"
-          sub="Entity type distribution"
-          iconBg="bg-accent-lt text-accent"
-        >
-          <ResponsiveContainer width="100%" height={200}>
-            <PieChart>
-              <Pie
-                data={rawPie}
-                cx="50%"
-                cy="50%"
-                innerRadius={55}
-                outerRadius={85}
-                dataKey="value"
-                paddingAngle={3}
-                strokeWidth={0}
-              >
-                {rawPie.map((_, i) => (
-                  <Cell key={i} fill={PIE_COLORS[i % PIE_COLORS.length]} />
-                ))}
-              </Pie>
-              <Tooltip contentStyle={TT_STYLE} />
-            </PieChart>
-          </ResponsiveContainer>
-          {/* Custom legend */}
-          <div className="flex flex-wrap gap-x-3 gap-y-1.5 justify-center">
-            {rawPie.map((d, i) => (
-              <div key={d.name} className="flex items-center gap-1.5">
-                <span className="w-2 h-2 rounded-full flex-shrink-0" style={{ background: PIE_COLORS[i % PIE_COLORS.length] }} />
-                <span className="text-[11px] text-muted">{d.name}</span>
-              </div>
-            ))}
-          </div>
         </ChartCard>
 
       </div>

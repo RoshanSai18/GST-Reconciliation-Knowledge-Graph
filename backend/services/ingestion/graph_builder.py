@@ -80,13 +80,13 @@ def upsert_taxpayer(row: TaxpayerIngestionRow) -> None:
     })
 
 
-def upsert_taxpayers_batch(rows: list[TaxpayerIngestionRow]) -> int:
+def upsert_taxpayers_batch(rows: list[TaxpayerIngestionRow], user_id: str = "") -> int:
     """Bulk upsert taxpayers using UNWIND for performance. Returns loaded count."""
     if not rows:
         return 0
     cypher = """
     UNWIND $batch AS r
-    MERGE (t:Taxpayer {gstin: r.gstin})
+    MERGE (t:Taxpayer {gstin: r.gstin, user_id: r.user_id})
     SET t += {
         legal_name:          r.legal_name,
         trade_name:          r.trade_name,
@@ -114,6 +114,7 @@ def upsert_taxpayers_batch(rows: list[TaxpayerIngestionRow]) -> int:
             "risk_score":          r.risk_score,
             "pan":                 r.pan,
             "country_code":        r.country_code,
+            "user_id":             user_id,
             "filing_frequency":    r.filing_frequency,
         }
         for r in rows
@@ -127,7 +128,7 @@ def upsert_taxpayers_batch(rows: list[TaxpayerIngestionRow]) -> int:
 # Invoice
 # =============================================================================
 
-def upsert_invoices_batch(rows: list[InvoiceIngestionRow]) -> int:
+def upsert_invoices_batch(rows: list[InvoiceIngestionRow], user_id: str = "") -> int:
     """
     Bulk upsert Invoice nodes.
     - Computes taxable_value using trust hierarchy (GSTR1 > PR).
@@ -140,7 +141,7 @@ def upsert_invoices_batch(rows: list[InvoiceIngestionRow]) -> int:
     # ── Node upsert ───────────────────────────────────────────────────────
     node_cypher = """
     UNWIND $batch AS r
-    MERGE (i:Invoice {invoice_id: r.invoice_id})
+    MERGE (i:Invoice {invoice_id: r.invoice_id, user_id: r.user_id})
     SET i += {
         invoice_no:           r.invoice_no,
         invoice_number:       r.invoice_number,
@@ -167,9 +168,9 @@ def upsert_invoices_batch(rows: list[InvoiceIngestionRow]) -> int:
     # ── Relationships: ISSUED_BY, RECEIVED_BY ────────────────────────────
     rel_tp_cypher = """
     UNWIND $batch AS r
-    MATCH (i:Invoice  {invoice_id: r.invoice_id})
-    MATCH (s:Taxpayer {gstin: r.seller_gstin})
-    MATCH (b:Taxpayer {gstin: r.buyer_gstin})
+    MATCH (i:Invoice  {invoice_id: r.invoice_id, user_id: r.user_id})
+    MATCH (s:Taxpayer {gstin: r.seller_gstin, user_id: r.user_id})
+    MATCH (b:Taxpayer {gstin: r.buyer_gstin,  user_id: r.user_id})
     MERGE (i)-[:ISSUED_BY]->(s)
     MERGE (i)-[:RECEIVED_BY]->(b)
     """
@@ -178,8 +179,8 @@ def upsert_invoices_batch(rows: list[InvoiceIngestionRow]) -> int:
     rel_g1_cypher = """
     UNWIND $batch AS r
     WITH r WHERE r.gstr1_return_id IS NOT NULL
-    MATCH (i:Invoice {invoice_id:  r.invoice_id})
-    MATCH (g:GSTR1   {return_id:   r.gstr1_return_id})
+    MATCH (i:Invoice {invoice_id:  r.invoice_id,        user_id: r.user_id})
+    MATCH (g:GSTR1   {return_id:   r.gstr1_return_id,   user_id: r.user_id})
     MERGE (i)-[:REPORTED_IN]->(g)
     """
 
@@ -187,8 +188,8 @@ def upsert_invoices_batch(rows: list[InvoiceIngestionRow]) -> int:
     rel_g2b_cypher = """
     UNWIND $batch AS r
     WITH r WHERE r.gstr2b_return_id IS NOT NULL
-    MATCH (i:Invoice {invoice_id:   r.invoice_id})
-    MATCH (g:GSTR2B  {return_id:    r.gstr2b_return_id})
+    MATCH (i:Invoice {invoice_id:   r.invoice_id,        user_id: r.user_id})
+    MATCH (g:GSTR2B  {return_id:    r.gstr2b_return_id, user_id: r.user_id})
     MERGE (i)-[:REFLECTED_IN]->(g)
     """
 
@@ -196,14 +197,15 @@ def upsert_invoices_batch(rows: list[InvoiceIngestionRow]) -> int:
     rel_amends_cypher = """
     UNWIND $batch AS r
     WITH r WHERE r.amends_invoice_id IS NOT NULL
-    MATCH (new_inv:Invoice  {invoice_id: r.invoice_id})
-    MATCH (old_inv:Invoice  {invoice_id: r.amends_invoice_id})
+    MATCH (new_inv:Invoice  {invoice_id: r.invoice_id,        user_id: r.user_id})
+    MATCH (old_inv:Invoice  {invoice_id: r.amends_invoice_id, user_id: r.user_id})
     MERGE (new_inv)-[:AMENDS]->(old_inv)
     """
 
     batch = [
         {
             "invoice_id":           r.invoice_id,
+            "user_id":              user_id,
             "invoice_no":           r.invoice_no,
             "invoice_number":       r.invoice_number or r.invoice_no,
             "invoice_date":         r.invoice_date,
@@ -244,14 +246,14 @@ def upsert_invoices_batch(rows: list[InvoiceIngestionRow]) -> int:
 # GSTR-1
 # =============================================================================
 
-def upsert_gstr1_batch(rows: list[GSTR1IngestionRow]) -> int:
+def upsert_gstr1_batch(rows: list[GSTR1IngestionRow], user_id: str = "") -> int:
     """Bulk upsert GSTR1 nodes and FILED_BY → Taxpayer relationship."""
     if not rows:
         return 0
 
     node_cypher = """
     UNWIND $batch AS r
-    MERGE (g:GSTR1 {return_id: r.return_id})
+    MERGE (g:GSTR1 {return_id: r.return_id, user_id: r.user_id})
     SET g += {
         gstin:             r.gstin,
         period:            r.period,
@@ -263,14 +265,15 @@ def upsert_gstr1_batch(rows: list[GSTR1IngestionRow]) -> int:
 
     rel_cypher = """
     UNWIND $batch AS r
-    MATCH (g:GSTR1    {return_id: r.return_id})
-    MATCH (t:Taxpayer {gstin:     r.gstin})
+    MATCH (g:GSTR1    {return_id: r.return_id, user_id: r.user_id})
+    MATCH (t:Taxpayer {gstin:     r.gstin,     user_id: r.user_id})
     MERGE (g)-[:FILED_BY]->(t)
     """
 
     batch = [
         {
             "return_id":         r.return_id,
+            "user_id":           user_id,
             "gstin":             r.gstin,
             "period":            r.period,
             "filing_date":       r.filing_date,
@@ -290,14 +293,14 @@ def upsert_gstr1_batch(rows: list[GSTR1IngestionRow]) -> int:
 # GSTR-2B
 # =============================================================================
 
-def upsert_gstr2b_batch(rows: list[GSTR2BIngestionRow]) -> int:
+def upsert_gstr2b_batch(rows: list[GSTR2BIngestionRow], user_id: str = "") -> int:
     """Bulk upsert GSTR2B nodes and FILED_BY → Taxpayer relationship."""
     if not rows:
         return 0
 
     node_cypher = """
     UNWIND $batch AS r
-    MERGE (g:GSTR2B {return_id: r.return_id})
+    MERGE (g:GSTR2B {return_id: r.return_id, user_id: r.user_id})
     SET g += {
         gstin:               r.gstin,
         period:              r.period,
@@ -308,14 +311,15 @@ def upsert_gstr2b_batch(rows: list[GSTR2BIngestionRow]) -> int:
 
     rel_cypher = """
     UNWIND $batch AS r
-    MATCH (g:GSTR2B   {return_id: r.return_id})
-    MATCH (t:Taxpayer {gstin:     r.gstin})
+    MATCH (g:GSTR2B   {return_id: r.return_id, user_id: r.user_id})
+    MATCH (t:Taxpayer {gstin:     r.gstin,     user_id: r.user_id})
     MERGE (g)-[:FILED_BY]->(t)
     """
 
     batch = [
         {
             "return_id":           r.return_id,
+            "user_id":             user_id,
             "gstin":               r.gstin,
             "period":              r.period,
             "generated_date":      r.generated_date,
@@ -334,14 +338,14 @@ def upsert_gstr2b_batch(rows: list[GSTR2BIngestionRow]) -> int:
 # GSTR-3B
 # =============================================================================
 
-def upsert_gstr3b_batch(rows: list[GSTR3BIngestionRow]) -> int:
+def upsert_gstr3b_batch(rows: list[GSTR3BIngestionRow], user_id: str = "") -> int:
     """Bulk upsert GSTR3B nodes and FILED_BY → Taxpayer relationship."""
     if not rows:
         return 0
 
     node_cypher = """
     UNWIND $batch AS r
-    MERGE (g:GSTR3B {return_id: r.return_id})
+    MERGE (g:GSTR3B {return_id: r.return_id, user_id: r.user_id})
     SET g += {
         gstin:       r.gstin,
         period:      r.period,
@@ -354,14 +358,15 @@ def upsert_gstr3b_batch(rows: list[GSTR3BIngestionRow]) -> int:
 
     rel_cypher = """
     UNWIND $batch AS r
-    MATCH (g:GSTR3B   {return_id: r.return_id})
-    MATCH (t:Taxpayer {gstin:     r.gstin})
+    MATCH (g:GSTR3B   {return_id: r.return_id, user_id: r.user_id})
+    MATCH (t:Taxpayer {gstin:     r.gstin,     user_id: r.user_id})
     MERGE (g)-[:FILED_BY]->(t)
     """
 
     batch = [
         {
             "return_id":   r.return_id,
+            "user_id":     user_id,
             "gstin":       r.gstin,
             "period":      r.period,
             "filing_date": r.filing_date,
@@ -382,7 +387,7 @@ def upsert_gstr3b_batch(rows: list[GSTR3BIngestionRow]) -> int:
 # TaxPayment
 # =============================================================================
 
-def upsert_tax_payments_batch(rows: list[TaxPaymentIngestionRow]) -> int:
+def upsert_tax_payments_batch(rows: list[TaxPaymentIngestionRow], user_id: str = "") -> int:
     """
     Bulk upsert TaxPayment nodes and:
       (Invoice)-[:PAID_VIA]->(TaxPayment)
@@ -393,7 +398,7 @@ def upsert_tax_payments_batch(rows: list[TaxPaymentIngestionRow]) -> int:
 
     node_cypher = """
     UNWIND $batch AS r
-    MERGE (p:TaxPayment {payment_id: r.payment_id})
+    MERGE (p:TaxPayment {payment_id: r.payment_id, user_id: r.user_id})
     SET p += {
         amount:       toFloat(r.amount),
         amount_paid:  toFloat(r.amount),
@@ -409,8 +414,8 @@ def upsert_tax_payments_batch(rows: list[TaxPaymentIngestionRow]) -> int:
     rel_inv_cypher = """
     UNWIND $batch AS r
     WITH r WHERE r.invoice_id IS NOT NULL
-    MATCH (p:TaxPayment {payment_id: r.payment_id})
-    MATCH (i:Invoice    {invoice_id: r.invoice_id})
+    MATCH (p:TaxPayment {payment_id: r.payment_id, user_id: r.user_id})
+    MATCH (i:Invoice    {invoice_id: r.invoice_id, user_id: r.user_id})
     MERGE (i)-[:PAID_VIA]->(p)
     """
 
@@ -418,14 +423,15 @@ def upsert_tax_payments_batch(rows: list[TaxPaymentIngestionRow]) -> int:
     rel_g3b_cypher = """
     UNWIND $batch AS r
     WITH r WHERE r.gstr3b_return_id IS NOT NULL
-    MATCH (p:TaxPayment {payment_id: r.payment_id})
-    MATCH (g:GSTR3B     {return_id:  r.gstr3b_return_id})
+    MATCH (p:TaxPayment {payment_id: r.payment_id, user_id: r.user_id})
+    MATCH (g:GSTR3B     {return_id:  r.gstr3b_return_id, user_id: r.user_id})
     MERGE (p)-[:SETTLED_IN]->(g)
     """
 
     batch = [
         {
             "payment_id":       r.payment_id,
+            "user_id":          user_id,
             "amount":           r.amount,
             "payment_date":     r.payment_date,
             "mode":             r.payment_mode.value if r.payment_mode else (r.mode or "OTHER"),
@@ -453,17 +459,19 @@ def write_invoice_reconciliation_result(
     status: str,
     risk_level: str,
     explanation: str,
+    user_id: str = "",
 ) -> None:
     """Write reconciliation results back onto an existing Invoice node."""
     run_write_query(
         """
-        MATCH (i:Invoice {invoice_id: $invoice_id})
+        MATCH (i:Invoice {invoice_id: $invoice_id, user_id: $user_id})
         SET i.status      = $status,
             i.risk_level  = $risk_level,
             i.explanation = $explanation
         """,
         {
             "invoice_id":  invoice_id,
+            "user_id":     user_id,
             "status":      status,
             "risk_level":  risk_level,
             "explanation": explanation,
@@ -475,38 +483,43 @@ def write_taxpayer_scores(
     gstin: str,
     risk_score: float,
     risk_level: str,
+    user_id: str = "",
 ) -> None:
     """Write ML-derived compliance score back onto a Taxpayer node."""
     run_write_query(
         """
-        MATCH (t:Taxpayer {gstin: $gstin})
+        MATCH (t:Taxpayer {gstin: $gstin, user_id: $user_id})
         SET t.risk_score = $risk_score,
             t.risk_level = $risk_level
         """,
         {
             "gstin":      gstin,
+            "user_id":    user_id,
             "risk_score": risk_score,
             "risk_level": risk_level,
         },
     )
 
 
-def write_taxpayer_scores_batch(updates: list[dict[str, Any]]) -> None:
+def write_taxpayer_scores_batch(updates: list[dict[str, Any]], user_id: str = "") -> None:
     """
     Bulk write ML scores to Taxpayer nodes.
 
     Parameters
     ----------
     updates : list of {gstin, risk_score, risk_level}
+    user_id : filter so only this user's Taxpayer nodes are updated
     """
     if not updates:
         return
+    # Inject user_id into every update dict so the Cypher filter works
+    enriched = [{**u, "user_id": user_id} for u in updates]
     run_write_query(
         """
         UNWIND $batch AS r
-        MATCH (t:Taxpayer {gstin: r.gstin})
+        MATCH (t:Taxpayer {gstin: r.gstin, user_id: r.user_id})
         SET t.risk_score = r.risk_score,
             t.risk_level = r.risk_level
         """,
-        {"batch": updates},
+        {"batch": enriched},
     )

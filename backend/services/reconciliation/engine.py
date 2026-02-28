@@ -31,7 +31,7 @@ logger = logging.getLogger(__name__)
 # ---------------------------------------------------------------------------
 
 _CONTEXT_QUERY = """
-MATCH (i:Invoice {invoice_id: $id})
+MATCH (i:Invoice {invoice_id: $id, user_id: $uid})
 OPTIONAL MATCH (i)-[:ISSUED_BY]->(s:Taxpayer)
 OPTIONAL MATCH (i)-[:RECEIVED_BY]->(b:Taxpayer)
 OPTIONAL MATCH (i)-[:REPORTED_IN]->(g1:GSTR1)
@@ -68,8 +68,8 @@ LIMIT 1
 """
 
 
-def _fetch_context(invoice_id: str) -> dict | None:
-    rows = run_query(_CONTEXT_QUERY, {"id": invoice_id})
+def _fetch_context(invoice_id: str, user_id: str = "") -> dict | None:
+    rows = run_query(_CONTEXT_QUERY, {"id": invoice_id, "uid": user_id})
     return rows[0] if rows else None
 
 
@@ -78,7 +78,7 @@ def _fetch_context(invoice_id: str) -> dict | None:
 # ---------------------------------------------------------------------------
 
 _WRITE_QUERY = """
-MATCH (i:Invoice {invoice_id: $invoice_id})
+MATCH (i:Invoice {invoice_id: $invoice_id, user_id: $uid})
 SET i.status      = $status,
     i.risk_level  = $risk_level,
     i.explanation = $explanation,
@@ -86,9 +86,10 @@ SET i.status      = $status,
 """
 
 
-def _write_result(invoice_id: str, result: ExplainResult) -> None:
+def _write_result(invoice_id: str, result: ExplainResult, user_id: str = "") -> None:
     run_write_query(_WRITE_QUERY, {
         "invoice_id":    invoice_id,
+        "uid":           user_id,
         "status":        result.status.value,
         "risk_level":    result.risk_level.value,
         "explanation":   result.explanation,
@@ -104,6 +105,7 @@ def _list_invoice_ids(
     gstin:       str | None = None,
     tax_period:  str | None = None,
     limit:       int | None = None,
+    user_id:     str        = "",
 ) -> list[str]:
     """
     Fetch invoice IDs matching optional filters.
@@ -111,25 +113,26 @@ def _list_invoice_ids(
     gstin       → match invoices where supplier OR buyer is this GSTIN
     tax_period  → match invoices linked to a GSTR-1 with this tax_period
     limit       → cap total results (useful for testing)
+    user_id     → only return invoices belonging to this user
     """
     if tax_period:
         cypher = """
-        MATCH (i:Invoice)-[:REPORTED_IN]->(g1:GSTR1 {tax_period: $period})
+        MATCH (i:Invoice {user_id: $uid})-[:REPORTED_IN]->(g1:GSTR1 {tax_period: $period})
         WHERE $gstin IS NULL
            OR i.supplier_gstin = $gstin
            OR i.buyer_gstin    = $gstin
         RETURN DISTINCT i.invoice_id AS invoice_id
         """
-        params: dict = {"period": tax_period, "gstin": gstin}
+        params: dict = {"period": tax_period, "gstin": gstin, "uid": user_id}
     else:
         cypher = """
-        MATCH (i:Invoice)
+        MATCH (i:Invoice {user_id: $uid})
         WHERE $gstin IS NULL
            OR i.supplier_gstin = $gstin
            OR i.buyer_gstin    = $gstin
         RETURN i.invoice_id AS invoice_id
         """
-        params = {"gstin": gstin}
+        params = {"gstin": gstin, "uid": user_id}
 
     rows = run_query(cypher, params)
     ids  = [r["invoice_id"] for r in rows if r.get("invoice_id")]
@@ -142,14 +145,14 @@ def _list_invoice_ids(
 # Public: reconcile one invoice
 # ---------------------------------------------------------------------------
 
-def reconcile_invoice(invoice_id: str) -> ExplainResult | None:
+def reconcile_invoice(invoice_id: str, user_id: str = "") -> ExplainResult | None:
     """
     Run full reconciliation pipeline for a single invoice.
 
     Returns the ExplainResult (and writes it back to the graph), or None if
     the invoice_id was not found in Neo4j.
     """
-    ctx = _fetch_context(invoice_id)
+    ctx = _fetch_context(invoice_id, user_id=user_id)
     if ctx is None:
         logger.warning("Invoice not found in graph: %s", invoice_id)
         return None
@@ -159,7 +162,7 @@ def reconcile_invoice(invoice_id: str) -> ExplainResult | None:
     time_res  = check_timing(ctx, config.PAYMENT_GRACE_DAYS, config.CHRONIC_DELAY_DAYS)
     result    = explain(path_res, value_res, time_res)
 
-    _write_result(invoice_id, result)
+    _write_result(invoice_id, result, user_id=user_id)
     logger.debug(
         "Reconciled %s → status=%s risk=%s",
         invoice_id, result.status.value, result.risk_level.value,
@@ -175,6 +178,7 @@ def reconcile_all(
     gstin:      str | None = None,
     tax_period: str | None = None,
     limit:      int | None = None,
+    user_id:    str        = "",
 ) -> ReconciliationSummary:
     """
     Reconcile all matching invoices and return a summary.
@@ -184,6 +188,7 @@ def reconcile_all(
     gstin       : restrict to invoices for this taxpayer (supplier or buyer)
     tax_period  : restrict to invoices in this GSTR-1 filing period ("MMYYYY")
     limit       : max number of invoices to process (None = no cap)
+    user_id     : only reconcile this user's invoices
 
     Returns
     -------
@@ -191,7 +196,7 @@ def reconcile_all(
     """
     t0 = time.perf_counter()
 
-    ids = _list_invoice_ids(gstin=gstin, tax_period=tax_period, limit=limit)
+    ids = _list_invoice_ids(gstin=gstin, tax_period=tax_period, limit=limit, user_id=user_id)
     logger.info(
         "Starting reconciliation: %d invoices | gstin=%s | period=%s",
         len(ids), gstin, tax_period,
@@ -206,7 +211,7 @@ def reconcile_all(
 
     for inv_id in ids:
         try:
-            result = reconcile_invoice(inv_id)
+            result = reconcile_invoice(inv_id, user_id=user_id)
             if result:
                 counts[result.status.value] += 1
             else:

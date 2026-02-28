@@ -13,13 +13,14 @@ Endpoints
 from __future__ import annotations
 
 import logging
+from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
-from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 
 import config
 from database.neo4j_client import run_query
 from models.schemas import (
+    CurrentUser,
     FilingRecord,
     InvoiceListItem,
     InvoiceStatus,
@@ -29,19 +30,12 @@ from models.schemas import (
     VendorListItem,
     VendorProfile,
 )
+from routers.auth import require_jwt
 
 logger  = logging.getLogger(__name__)
 router  = APIRouter()
-_bearer = HTTPBearer()
 
-
-# ---------------------------------------------------------------------------
-# Auth guard (temporary — replaced in Phase 10)
-# ---------------------------------------------------------------------------
-
-def _require_auth(creds: HTTPAuthorizationCredentials = Depends(_bearer)) -> None:
-    if creds.credentials != config.JWT_SECRET:
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid token")
+_AuthDep = Annotated[CurrentUser, Depends(require_jwt)]
 
 
 # ---------------------------------------------------------------------------
@@ -52,7 +46,7 @@ def _require_auth(creds: HTTPAuthorizationCredentials = Depends(_bearer)) -> Non
     "/train",
     summary="Train ML Models",
     status_code=status.HTTP_202_ACCEPTED,
-    dependencies=[Depends(_require_auth)],
+    dependencies=[Depends(require_jwt)],
 )
 def train_models() -> dict:
     """Train IsolationForest + RandomForest on the current graph data."""
@@ -75,7 +69,7 @@ def train_models() -> dict:
     "/score",
     summary="Score All Vendors",
     status_code=status.HTTP_200_OK,
-    dependencies=[Depends(_require_auth)],
+    dependencies=[Depends(require_jwt)],
 )
 def score_all() -> dict:
     """Compute compliance scores for ALL vendors and persist to Neo4j."""
@@ -97,7 +91,7 @@ def score_all() -> dict:
 @router.post(
     "/{gstin}/score",
     summary="Score Single Vendor",
-    dependencies=[Depends(_require_auth)],
+    dependencies=[Depends(require_jwt)],
 )
 def score_one(gstin: str) -> dict:
     """Compute and persist compliance score for a single GSTIN."""
@@ -115,7 +109,7 @@ def score_one(gstin: str) -> dict:
 # ---------------------------------------------------------------------------
 
 _VENDOR_LIST_QUERY = """
-MATCH (t:Taxpayer)
+MATCH (t:Taxpayer {user_id: $uid})
 OPTIONAL MATCH (i:Invoice)-[:ISSUED_BY]->(t)
 WITH t,
      count(i)                                              AS total_inv,
@@ -134,7 +128,7 @@ RETURN
     high_risk_cnt
 """
 
-_VENDOR_COUNT_QUERY = "MATCH (t:Taxpayer) RETURN count(t) AS total"
+_VENDOR_COUNT_QUERY = "MATCH (t:Taxpayer {user_id: $uid}) RETURN count(t) AS total"
 
 
 @router.get(
@@ -143,15 +137,17 @@ _VENDOR_COUNT_QUERY = "MATCH (t:Taxpayer) RETURN count(t) AS total"
     response_model=dict,
 )
 def list_vendors(
+    current_user: _AuthDep,
     page:  int = Query(1,   ge=1, description="Page number (1-based)"),
     limit: int = Query(20, ge=1, le=200, description="Results per page"),
 ) -> dict:
     """Return a paginated list of vendors with their compliance summary."""
     skip = (page - 1) * limit
+    uid  = current_user.user_id
 
     try:
-        rows  = run_query(_VENDOR_LIST_QUERY, {"skip": skip, "limit": limit})
-        total = (run_query(_VENDOR_COUNT_QUERY) or [{}])[0].get("total", 0)
+        rows  = run_query(_VENDOR_LIST_QUERY, {"skip": skip, "limit": limit, "uid": uid})
+        total = (run_query(_VENDOR_COUNT_QUERY, {"uid": uid}) or [{}])[0].get("total", 0)
     except Exception as exc:
         logger.error("Vendor list query failed: %s", exc)
         raise HTTPException(status_code=500, detail="Database query failed")
@@ -183,12 +179,12 @@ def list_vendors(
 # ---------------------------------------------------------------------------
 
 _TAXPAYER_QUERY = """
-MATCH (t:Taxpayer {gstin: $gstin})
+MATCH (t:Taxpayer {gstin: $gstin, user_id: $uid})
 RETURN t
 """
 
 _FILING_QUERY = """
-MATCH (g1:GSTR1)-[:FILED_BY]->(t:Taxpayer {gstin: $gstin})
+MATCH (g1:GSTR1)-[:FILED_BY]->(t:Taxpayer {gstin: $gstin, user_id: $uid})
 OPTIONAL MATCH (g3:GSTR3B {period: g1.period})-[:FILED_BY]->(t)
 OPTIONAL MATCH (p:TaxPayment {period: g1.period})-[:PAID_BY]->(t)
 WITH g1.period AS period,
@@ -205,7 +201,7 @@ LIMIT 12
 """
 
 _INVOICE_LIST_QUERY = """
-MATCH (i:Invoice)-[:ISSUED_BY]->(t:Taxpayer {gstin: $gstin})
+MATCH (i:Invoice)-[:ISSUED_BY]->(t:Taxpayer {gstin: $gstin, user_id: $uid})
 RETURN
     i.invoice_id   AS invoice_id,
     i.invoice_no   AS invoice_no,
@@ -219,7 +215,7 @@ LIMIT 50
 """
 
 _PATTERN_QUERY = """
-OPTIONAL MATCH (t:Taxpayer {gstin: $gstin})
+OPTIONAL MATCH (t:Taxpayer {gstin: $gstin, user_id: $uid})
 OPTIONAL MATCH (t)-[:SUSPICIOUS_CYCLE]->(c)
 OPTIONAL MATCH (t)-[:CHRONIC_DELAY]->(d)
 OPTIONAL MATCH (t)-[:AMENDMENT_CHAIN]->(a)
@@ -230,7 +226,7 @@ RETURN
 """
 
 _SCORE_BREAKDOWN_QUERY = """
-MATCH (t:Taxpayer {gstin: $gstin})
+MATCH (t:Taxpayer {gstin: $gstin, user_id: $uid})
 OPTIONAL MATCH (i:Invoice)-[:ISSUED_BY]->(t)
 WITH t,
      count(i)                                                      AS n,
@@ -259,13 +255,14 @@ RETURN
     summary="Vendor Profile",
     response_model=VendorProfile,
 )
-def vendor_profile(gstin: str) -> VendorProfile:
+def vendor_profile(gstin: str, current_user: _AuthDep) -> VendorProfile:
     """Return the full compliance profile for a single GSTIN."""
     gstin = gstin.upper()
+    uid   = current_user.user_id
 
-    # ── Taxpayer node ─────────────────────────────────────────────────────
+    # ── Taxpayer node ─────────────────────────────────────────────────
     try:
-        tp_rows = run_query(_TAXPAYER_QUERY, {"gstin": gstin})
+        tp_rows = run_query(_TAXPAYER_QUERY, {"gstin": gstin, "uid": uid})
     except Exception as exc:
         logger.error("Taxpayer query failed: %s", exc)
         raise HTTPException(status_code=500, detail="Database error")
@@ -277,7 +274,7 @@ def vendor_profile(gstin: str) -> VendorProfile:
 
     # ── Score breakdown ───────────────────────────────────────────────────
     try:
-        sb_rows = run_query(_SCORE_BREAKDOWN_QUERY, {"gstin": gstin})
+        sb_rows = run_query(_SCORE_BREAKDOWN_QUERY, {"gstin": gstin, "uid": uid})
     except Exception:
         sb_rows = []
 
@@ -296,7 +293,7 @@ def vendor_profile(gstin: str) -> VendorProfile:
 
     # ── Filing history ────────────────────────────────────────────────────
     try:
-        filing_rows = run_query(_FILING_QUERY, {"gstin": gstin})
+        filing_rows = run_query(_FILING_QUERY, {"gstin": gstin, "uid": uid})
     except Exception:
         filing_rows = []
 
@@ -312,13 +309,13 @@ def vendor_profile(gstin: str) -> VendorProfile:
 
     # ── Recent invoices ───────────────────────────────────────────────────
     try:
-        inv_rows = run_query(_INVOICE_LIST_QUERY, {"gstin": gstin})
+        inv_rows = run_query(_INVOICE_LIST_QUERY, {"gstin": gstin, "uid": uid})
     except Exception:
         inv_rows = []
 
     # ── Pattern flags ─────────────────────────────────────────────────────
     try:
-        pat_rows = run_query(_PATTERN_QUERY, {"gstin": gstin})
+        pat_rows = run_query(_PATTERN_QUERY, {"gstin": gstin, "uid": uid})
     except Exception:
         pat_rows = []
 

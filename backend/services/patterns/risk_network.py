@@ -32,9 +32,9 @@ from models.schemas import RiskLevel, RiskNetworkResult
 logger = logging.getLogger(__name__)
 
 _NETWORK_QUERY = """
-// For each taxpayer, collect all direct trading partners
-MATCH (t:Taxpayer)
-OPTIONAL MATCH (inv:Invoice)-[:ISSUED_BY|RECEIVED_BY]->(partner:Taxpayer)
+// For each taxpayer (of this user), collect all direct trading partners
+MATCH (t:Taxpayer {user_id: $uid})
+OPTIONAL MATCH (inv:Invoice)-[:ISSUED_BY|RECEIVED_BY]->(partner:Taxpayer {user_id: $uid})
 WHERE (
     (inv)-[:ISSUED_BY]->(t)  OR
     (inv)-[:RECEIVED_BY]->(t)
@@ -55,7 +55,7 @@ ORDER BY risky_ratio DESC
 """
 
 
-def detect_risk_networks() -> list[RiskNetworkResult]:
+def detect_risk_networks(user_id: str = "") -> list[RiskNetworkResult]:
     """
     Detect taxpayers embedded in predominantly high-risk trading networks.
     Returns [] if risk_level has not yet been populated on Taxpayer nodes.
@@ -63,7 +63,7 @@ def detect_risk_networks() -> list[RiskNetworkResult]:
     threshold = config.RISKY_PARTNER_THRESHOLD
 
     try:
-        rows = run_query(_NETWORK_QUERY)
+        rows = run_query(_NETWORK_QUERY, {"uid": user_id or ""})
     except Exception as exc:
         logger.error("Risk network query failed: %s", exc)
         return []

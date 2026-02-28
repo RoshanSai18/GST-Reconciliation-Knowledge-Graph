@@ -1,5 +1,6 @@
 import { useEffect, useState, useCallback } from 'react'
-import { RefreshCw, Cpu, TrendingUp, ChevronDown } from 'lucide-react'
+import { Link } from 'react-router-dom'
+import { RefreshCw, Cpu, TrendingUp, ChevronDown, Upload } from 'lucide-react'
 import RiskBadge from '@/components/shared/RiskBadge'
 import TrustGauge from '@/components/shared/TrustGauge'
 import { TableSkeleton } from '@/components/shared/Skeleton'
@@ -141,8 +142,13 @@ export default function VendorsPage() {
               <tbody>
                 {loading && <TableSkeleton rows={8} cols={8} />}
                 {!loading && vendors.length === 0 && (
-                  <tr><td colSpan={8} className="text-center py-16 text-muted">
-                    No vendors yet. Upload taxpayers.xlsx first.
+                  <tr><td colSpan={8} className="text-center py-16">
+                    <div className="flex flex-col items-center gap-3">
+                      <Upload size={22} className="text-muted" />
+                      <p className="text-[13px] font-semibold text-foreground">No vendors found</p>
+                      <p className="text-[12px] text-muted">Upload a taxpayers file to see vendor data here</p>
+                      <Link to="/upload" className="mt-1 text-[12px] font-semibold text-accent hover:underline">Go to Upload →</Link>
+                    </div>
                   </td></tr>
                 )}
                 {!loading && vendors.map(v => (

@@ -7,7 +7,7 @@
  */
 import { useAuth as useClerkAuth, useUser } from '@clerk/clerk-react'
 import { useEffect, type ReactNode } from 'react'
-import { setTokenProvider } from '@/lib/api'
+import { setTokenProvider, sessionApi } from '@/lib/api'
 
 /**
  * Drop-in AuthProvider kept for backward compatibility.
@@ -54,6 +54,14 @@ export function useAuth(): AuthCtx {
     isAuthenticated: !!isSignedIn,
     isLoaded,
     username,
-    logout: () => signOut(),
+    logout: async () => {
+      try {
+        // Delete all user data from Neo4j before signing out
+        await sessionApi.deleteSession()
+      } catch {
+        // Fire-and-forget: always sign out even if delete fails
+      }
+      signOut()
+    },
   }
 }

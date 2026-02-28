@@ -107,6 +107,7 @@ def _register_router(module_path: str, prefix: str, tags: list[str]) -> None:
 
 
 _register_router("routers.auth",      "/api/auth",      ["Authentication"])
+_register_router("routers.session",   "/api/session",   ["Session"])
 _register_router("routers.upload",    "/api/upload",    ["Data Ingestion"])
 _register_router("routers.reconcile", "/api/reconcile", ["Reconciliation"])
 _register_router("routers.invoices",  "/api/invoices",  ["Invoices"])

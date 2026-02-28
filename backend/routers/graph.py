@@ -9,14 +9,18 @@ from __future__ import annotations
 
 import hashlib
 import logging
+from typing import Annotated
 
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query
 
 from database.neo4j_client import run_query
-from models.schemas import GraphEdge, GraphExport, GraphNode, RiskLevel
+from models.schemas import CurrentUser, GraphEdge, GraphExport, GraphNode, RiskLevel
+from routers.auth import require_jwt
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
+
+_AuthDep = Annotated[CurrentUser, Depends(require_jwt)]
 
 
 # ---------------------------------------------------------------------------
@@ -40,32 +44,28 @@ def _risk(val) -> RiskLevel | None:
 # GET /graph/subgraph/{gstin}
 # ---------------------------------------------------------------------------
 
-# Depth-1: taxpayer + its invoices + related GSTR-1/3B/payments (1 hop)
+# Depth-1: per-row pattern — each (invoice, gstr1, gstr2b, payment, gstr3b) combination
+# is its own row so Python can correctly associate each linked node with its invoice.
 _SUBGRAPH_D1 = """
-MATCH (t:Taxpayer {gstin: $gstin})
+MATCH (t:Taxpayer {gstin: $gstin, user_id: $uid})
 OPTIONAL MATCH (i:Invoice)-[:ISSUED_BY]->(t)
 OPTIONAL MATCH (i)-[:REPORTED_IN]->(g1:GSTR1)
-OPTIONAL MATCH (i)-[:DECLARED_IN]->(g3b:GSTR3B)
+OPTIONAL MATCH (i)-[:REFLECTED_IN]->(g2b:GSTR2B)
 OPTIONAL MATCH (i)-[:PAID_VIA]->(p:TaxPayment)
-RETURN t, collect(DISTINCT i) AS invoices,
-       collect(DISTINCT g1)   AS gstr1s,
-       collect(DISTINCT g3b)  AS gstr3bs,
-       collect(DISTINCT p)    AS payments
+OPTIONAL MATCH (p)-[:SETTLED_IN]->(g3b:GSTR3B)
+RETURN t, i, g1, g2b, p, g3b
 """
 
-# Depth-2: also pull counterparty taxpayers connected to those invoices
+# Depth-2: also pull counterparty (buyer) Taxpayer nodes
 _SUBGRAPH_D2 = """
-MATCH (t:Taxpayer {gstin: $gstin})
+MATCH (t:Taxpayer {gstin: $gstin, user_id: $uid})
 OPTIONAL MATCH (i:Invoice)-[:ISSUED_BY]->(t)
 OPTIONAL MATCH (i)-[:REPORTED_IN]->(g1:GSTR1)
-OPTIONAL MATCH (i)-[:DECLARED_IN]->(g3b:GSTR3B)
+OPTIONAL MATCH (i)-[:REFLECTED_IN]->(g2b:GSTR2B)
 OPTIONAL MATCH (i)-[:PAID_VIA]->(p:TaxPayment)
-OPTIONAL MATCH (buyer:Taxpayer {gstin: i.buyer_gstin})
-RETURN t, collect(DISTINCT i) AS invoices,
-       collect(DISTINCT g1)   AS gstr1s,
-       collect(DISTINCT g3b)  AS gstr3bs,
-       collect(DISTINCT p)    AS payments,
-       collect(DISTINCT buyer) AS buyers
+OPTIONAL MATCH (p)-[:SETTLED_IN]->(g3b:GSTR3B)
+OPTIONAL MATCH (buyer:Taxpayer {gstin: i.buyer_gstin, user_id: $uid})
+RETURN t, i, g1, g2b, p, g3b, buyer
 """
 
 
@@ -76,6 +76,7 @@ RETURN t, collect(DISTINCT i) AS invoices,
 )
 def taxpayer_subgraph(
     gstin: str,
+    current_user: _AuthDep,
     depth: int = Query(1, ge=1, le=2, description="Traversal depth: 1 = invoices only, 2 = buyer nodes too"),
 ) -> GraphExport:
     """Export a Cytoscape-compatible subgraph centred on a GSTIN."""
@@ -83,7 +84,7 @@ def taxpayer_subgraph(
     query = _SUBGRAPH_D2 if depth >= 2 else _SUBGRAPH_D1
 
     try:
-        rows = run_query(query, {"gstin": gstin})
+        rows = run_query(query, {"gstin": gstin, "uid": current_user.user_id})
     except Exception as exc:
         logger.error("Subgraph query failed: %s", exc)
         raise HTTPException(status_code=500, detail="Database query failed")
@@ -91,7 +92,6 @@ def taxpayer_subgraph(
     if not rows:
         raise HTTPException(status_code=404, detail=f"GSTIN {gstin} not found")
 
-    row = rows[0]
     nodes: list[GraphNode] = []
     edges: list[GraphEdge] = []
     seen_nodes: set[str]   = set()
@@ -110,12 +110,13 @@ def taxpayer_subgraph(
             edges.append(GraphEdge(id=eid, source=src, target=tgt,
                                    label=rel, properties=props or {}))
 
-    # ── Root taxpayer ─────────────────────────────────────────────────────
-    tp = dict(row["t"])
+    # ── Root taxpayer (from first row) ────────────────────────────────────
+    tp = dict(rows[0]["t"])
     _add_node(gstin, "Taxpayer", tp, _risk(tp.get("risk_level")))
 
-    # ── Invoices ──────────────────────────────────────────────────────────
-    for inv_node in (row.get("invoices") or []):
+    # ── Iterate over per-row results ──────────────────────────────────────
+    for row in rows:
+        inv_node = row.get("i")
         if not inv_node:
             continue
         inv = dict(inv_node)
@@ -125,51 +126,43 @@ def taxpayer_subgraph(
         _add_node(iid, "Invoice", inv, _risk(inv.get("risk_level")))
         _add_edge(iid, gstin, "ISSUED_BY")
 
-        # GSTR-1 links
-        for g1_node in (row.get("gstr1s") or []):
-            if not g1_node:
-                continue
-            g1 = dict(g1_node)
+        # GSTR1
+        if row.get("g1"):
+            g1 = dict(row["g1"])
             gid = g1.get("return_id")
             if gid:
                 _add_node(gid, "GSTR1", g1)
                 _add_edge(iid, gid, "REPORTED_IN")
 
-        # GSTR-3B links
-        for g3b_node in (row.get("gstr3bs") or []):
-            if not g3b_node:
-                continue
-            g3 = dict(g3b_node)
-            g3id = g3.get("return_id")
-            if g3id:
-                _add_node(g3id, "GSTR3B", g3)
-                _add_edge(iid, g3id, "DECLARED_IN")
+        # GSTR2B
+        if row.get("g2b"):
+            g2b = dict(row["g2b"])
+            g2bid = g2b.get("return_id")
+            if g2bid:
+                _add_node(g2bid, "GSTR2B", g2b)
+                _add_edge(iid, g2bid, "REFLECTED_IN")
 
-        # Payment links
-        for pay_node in (row.get("payments") or []):
-            if not pay_node:
-                continue
-            pay = dict(pay_node)
+        # TaxPayment → GSTR3B
+        if row.get("p"):
+            pay = dict(row["p"])
             pid = pay.get("payment_id")
             if pid:
                 _add_node(pid, "TaxPayment", pay)
                 _add_edge(iid, pid, "PAID_VIA")
+                if row.get("g3b"):
+                    g3b = dict(row["g3b"])
+                    g3bid = g3b.get("return_id")
+                    if g3bid:
+                        _add_node(g3bid, "GSTR3B", g3b)
+                        _add_edge(pid, g3bid, "SETTLED_IN")
 
-    # ── Buyer taxpayer nodes (depth = 2) ──────────────────────────────────
-    for buyer_node in (row.get("buyers") or []):
-        if not buyer_node:
-            continue
-        b = dict(buyer_node)
-        bid = b.get("gstin")
-        if bid and bid != gstin:
-            _add_node(bid, "Taxpayer", b, _risk(b.get("risk_level")))
-            # add BUYER edges from invoices that link to this buyer
-            for inv_node in (row.get("invoices") or []):
-                if not inv_node:
-                    continue
-                inv = dict(inv_node)
-                if inv.get("buyer_gstin") == bid and inv.get("invoice_id"):
-                    _add_edge(inv["invoice_id"], bid, "BUYER")
+        # Buyer Taxpayer (depth=2 only)
+        if row.get("buyer"):
+            b = dict(row["buyer"])
+            bid = b.get("gstin")
+            if bid and bid != gstin:
+                _add_node(bid, "Taxpayer", b, _risk(b.get("risk_level")))
+                _add_edge(iid, bid, "RECEIVED_BY")
 
     return GraphExport(nodes=nodes, edges=edges)
 
@@ -178,22 +171,19 @@ def taxpayer_subgraph(
 # GET /graph/overview
 # ---------------------------------------------------------------------------
 
+# Overview: per-row like subgraph so all node types appear.
+# Each taxpayer is limited to 3 invoices to keep the graph readable.
 _OVERVIEW_QUERY = """
-MATCH (t:Taxpayer)
+MATCH (t:Taxpayer {user_id: $uid})
 WITH t ORDER BY t.gstin LIMIT $limit
 OPTIONAL MATCH (i:Invoice)-[:ISSUED_BY]->(t)
-WITH t, collect(i)[0..5] AS invoices
-RETURN t, invoices
-"""
-
-_OVERVIEW_GSTR_QUERY = """
-MATCH (g:GSTR1)-[:FILED_BY]->(t:Taxpayer {gstin: $gstin})
-RETURN collect(g)[0..3] AS gstr1s
-"""
-
-_OVERVIEW_PAYMENT_QUERY = """
-MATCH (p:TaxPayment)-[:SETTLED_IN]->(g:GSTR3B)-[:FILED_BY]->(t:Taxpayer {gstin: $gstin})
-RETURN collect(p)[0..3] AS payments
+WITH t, collect(i)[0..3] AS invList
+UNWIND (CASE WHEN size(invList) > 0 THEN invList ELSE [null] END) AS i
+OPTIONAL MATCH (i)-[:REPORTED_IN]->(g1:GSTR1)
+OPTIONAL MATCH (i)-[:REFLECTED_IN]->(g2b:GSTR2B)
+OPTIONAL MATCH (i)-[:PAID_VIA]->(p:TaxPayment)
+OPTIONAL MATCH (p)-[:SETTLED_IN]->(g3b:GSTR3B)
+RETURN t, i, g1, g2b, p, g3b
 """
 
 
@@ -203,11 +193,12 @@ RETURN collect(p)[0..3] AS payments
     response_model=GraphExport,
 )
 def graph_overview(
+    current_user: _AuthDep,
     limit: int = Query(30, ge=5, le=100, description="Max taxpayer nodes to include"),
 ) -> GraphExport:
     """Return a sampled overview of the full knowledge graph (up to `limit` taxpayers + their data)."""
     try:
-        rows = run_query(_OVERVIEW_QUERY, {"limit": limit})
+        rows = run_query(_OVERVIEW_QUERY, {"limit": limit, "uid": current_user.user_id})
     except Exception as exc:
         logger.error("Overview query failed: %s", exc)
         raise HTTPException(status_code=500, detail="Database query failed")
@@ -231,26 +222,55 @@ def graph_overview(
     for row in (rows or []):
         # Taxpayer node
         tp = dict(row["t"])
-        gstin = tp.get("gstin")
-        if not gstin:
+        gstin_ov = tp.get("gstin")
+        if not gstin_ov:
             continue
-        _add_node(gstin, "Taxpayer", tp, _risk(tp.get("risk_level")))
+        _add_node(gstin_ov, "Taxpayer", tp, _risk(tp.get("risk_level")))
 
-        # Invoice nodes + edges
-        for inv_node in (row.get("invoices") or []):
-            if not inv_node:
-                continue
-            inv = dict(inv_node)
-            iid = inv.get("invoice_id")
-            if not iid:
-                continue
-            _add_node(iid, "Invoice", inv, _risk(inv.get("risk_level")))
-            _add_edge(iid, gstin, "ISSUED_BY")
+        inv_node = row.get("i")
+        if not inv_node:
+            continue
+        inv = dict(inv_node)
+        iid = inv.get("invoice_id")
+        if not iid:
+            continue
+        _add_node(iid, "Invoice", inv, _risk(inv.get("risk_level")))
+        _add_edge(iid, gstin_ov, "ISSUED_BY")
 
-            # Buyer link (if buyer already added as a taxpayer node)
-            buyer = inv.get("buyer_gstin")
-            if buyer and buyer in seen_nodes:
-                _add_edge(iid, buyer, "RECEIVED_BY")
+        # Buyer cross-link (if buyer taxpayer already in graph)
+        buyer_gstin = inv.get("buyer_gstin")
+        if buyer_gstin and buyer_gstin in seen_nodes:
+            _add_edge(iid, buyer_gstin, "RECEIVED_BY")
+
+        # GSTR1
+        if row.get("g1"):
+            g1 = dict(row["g1"])
+            gid = g1.get("return_id")
+            if gid:
+                _add_node(gid, "GSTR1", g1)
+                _add_edge(iid, gid, "REPORTED_IN")
+
+        # GSTR2B
+        if row.get("g2b"):
+            g2b = dict(row["g2b"])
+            g2bid = g2b.get("return_id")
+            if g2bid:
+                _add_node(g2bid, "GSTR2B", g2b)
+                _add_edge(iid, g2bid, "REFLECTED_IN")
+
+        # TaxPayment → GSTR3B
+        if row.get("p"):
+            pay = dict(row["p"])
+            pid = pay.get("payment_id")
+            if pid:
+                _add_node(pid, "TaxPayment", pay)
+                _add_edge(iid, pid, "PAID_VIA")
+                if row.get("g3b"):
+                    g3b = dict(row["g3b"])
+                    g3bid = g3b.get("return_id")
+                    if g3bid:
+                        _add_node(g3bid, "GSTR3B", g3b)
+                        _add_edge(pid, g3bid, "SETTLED_IN")
 
     return GraphExport(nodes=nodes, edges=edges)
 
@@ -260,14 +280,14 @@ def graph_overview(
 # ---------------------------------------------------------------------------
 
 _STATS_QUERY = """
-MATCH (n)
+MATCH (n {user_id: $uid})
 WITH labels(n)[0] AS label, count(n) AS cnt
 RETURN label, cnt
 ORDER BY cnt DESC
 """
 
 _REL_STATS_QUERY = """
-MATCH ()-[r]->()
+MATCH (n {user_id: $uid})-[r]->()
 WITH type(r) AS rel, count(r) AS cnt
 RETURN rel, cnt
 ORDER BY cnt DESC
@@ -278,11 +298,11 @@ ORDER BY cnt DESC
     "/stats",
     summary="Graph Statistics",
 )
-def graph_stats() -> dict:
-    """Return node and relationship counts for the entire graph."""
+def graph_stats(current_user: _AuthDep) -> dict:
+    """Return node and relationship counts for the current user's graph."""
     try:
-        node_rows = run_query(_STATS_QUERY)
-        rel_rows  = run_query(_REL_STATS_QUERY)
+        node_rows = run_query(_STATS_QUERY, {"uid": current_user.user_id})
+        rel_rows  = run_query(_REL_STATS_QUERY, {"uid": current_user.user_id})
     except Exception as exc:
         logger.error("Stats query failed: %s", exc)
         raise HTTPException(status_code=500, detail="Database query failed")

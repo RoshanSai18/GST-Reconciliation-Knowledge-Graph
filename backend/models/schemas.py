@@ -621,4 +621,5 @@ class TokenResponse(BaseModel):
 
 class CurrentUser(BaseModel):
     username: str
+    user_id:  str = ""      # Clerk sub (e.g. user_2abc…)
     role:     str = "admin"

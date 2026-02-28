@@ -8,11 +8,13 @@ GET /invoices/{id}       → full detail     (InvoiceDetail)
 from __future__ import annotations
 
 import logging
+from typing import Annotated
 
-from fastapi import APIRouter, HTTPException, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 
 from database.neo4j_client import run_query
 from models.schemas import (
+    CurrentUser,
     GSTR1Response,
     GSTR2BResponse,
     GSTR3BResponse,
@@ -26,9 +28,12 @@ from models.schemas import (
     TaxPaymentResponse,
     ValueComparison,
 )
+from routers.auth import require_jwt
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
+
+_AuthDep = Annotated[CurrentUser, Depends(require_jwt)]
 
 
 # ---------------------------------------------------------------------------
@@ -51,7 +56,7 @@ def _float(v, default: float = 0.0) -> float:
 # ---------------------------------------------------------------------------
 
 _LIST_QUERY = """
-MATCH (i:Invoice)
+MATCH (i:Invoice {user_id: $uid})
 OPTIONAL MATCH (i)-[:ISSUED_BY]->(t:Taxpayer)
 WITH i, t.gstin AS seller
 ORDER BY i.invoice_date DESC, i.invoice_id ASC
@@ -69,10 +74,10 @@ RETURN
     i.explanation  AS explanation
 """
 
-_COUNT_QUERY = "MATCH (i:Invoice) RETURN count(i) AS total"
+_COUNT_QUERY = "MATCH (i:Invoice {user_id: $uid}) RETURN count(i) AS total"
 
 _FILTER_QUERY = """
-MATCH (i:Invoice)
+MATCH (i:Invoice {user_id: $uid})
 WHERE ($gstin IS NULL OR i.seller_gstin = $gstin OR i.buyer_gstin = $gstin)
   AND ($invoice_number IS NULL OR i.invoice_no = $invoice_number OR i.invoice_no CONTAINS $invoice_number)
   AND ($status IS NULL OR i.status = $status)
@@ -93,7 +98,7 @@ RETURN
 """
 
 _FILTER_COUNT_QUERY = """
-MATCH (i:Invoice)
+MATCH (i:Invoice {user_id: $uid})
 WHERE ($gstin IS NULL OR i.seller_gstin = $gstin OR i.buyer_gstin = $gstin)
   AND ($invoice_number IS NULL OR i.invoice_no = $invoice_number OR i.invoice_no CONTAINS $invoice_number)
   AND ($status IS NULL OR i.status = $status)
@@ -132,6 +137,7 @@ def _to_list_item(r: dict) -> InvoiceListItem:
     response_model=PaginatedInvoices,
 )
 def list_invoices(
+    current_user: _AuthDep,
     page:   int       = Query(1,    ge=1),
     per_page: int     = Query(50,   ge=1, le=500),
     gstin:  str | None = Query(None, description="Filter by seller or buyer GSTIN"),
@@ -140,17 +146,20 @@ def list_invoices(
 ) -> PaginatedInvoices:
     """Return paginated invoices, optionally filtered by GSTIN, invoice number, or status."""
     skip = (page - 1) * per_page
+    uid  = current_user.user_id
 
     try:
         if gstin or invoice_number or status:
             rows  = run_query(_FILTER_QUERY,
                               {"skip": skip, "limit": per_page,
+                               "uid": uid,
                                "gstin": gstin, "invoice_number": invoice_number, "status": status})
             total = (run_query(_FILTER_COUNT_QUERY,
-                               {"gstin": gstin, "invoice_number": invoice_number, "status": status}) or [{}])[0].get("total", 0)
+                               {"uid": uid,
+                                "gstin": gstin, "invoice_number": invoice_number, "status": status}) or [{}])[0].get("total", 0)
         else:
-            rows  = run_query(_LIST_QUERY, {"skip": skip, "limit": per_page})
-            total = (run_query(_COUNT_QUERY) or [{}])[0].get("total", 0)
+            rows  = run_query(_LIST_QUERY, {"skip": skip, "limit": per_page, "uid": uid})
+            total = (run_query(_COUNT_QUERY, {"uid": uid}) or [{}])[0].get("total", 0)
     except Exception as exc:
         logger.error("Invoice list query failed: %s", exc)
         raise HTTPException(status_code=500, detail="Database query failed")
@@ -168,7 +177,7 @@ def list_invoices(
 # ---------------------------------------------------------------------------
 
 _DETAIL_QUERY = """
-MATCH (i:Invoice {invoice_id: $invoice_id})
+MATCH (i:Invoice {invoice_id: $invoice_id, user_id: $uid})
 OPTIONAL MATCH (i)-[:ISSUED_BY]->(t:Taxpayer)
 OPTIONAL MATCH (i)-[:REPORTED_IN]->(g1:GSTR1)
 OPTIONAL MATCH (i)-[:VISIBLE_IN]->(g2b:GSTR2B)
@@ -269,10 +278,10 @@ def _build_payment(p) -> TaxPaymentResponse | None:
     summary="Invoice Detail",
     response_model=InvoiceDetail,
 )
-def invoice_detail(invoice_id: str) -> InvoiceDetail:
+def invoice_detail(invoice_id: str, current_user: _AuthDep) -> InvoiceDetail:
     """Return full detail for a single invoice including path hops and related data."""
     try:
-        rows = run_query(_DETAIL_QUERY, {"invoice_id": invoice_id})
+        rows = run_query(_DETAIL_QUERY, {"invoice_id": invoice_id, "uid": current_user.user_id})
     except Exception as exc:
         logger.error("Invoice detail query failed: %s", exc)
         raise HTTPException(status_code=500, detail="Database query failed")

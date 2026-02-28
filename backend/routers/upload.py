@@ -30,7 +30,7 @@ from typing import Annotated
 from fastapi import APIRouter, Depends, File, HTTPException, UploadFile, status
 
 import config
-from models.schemas import UploadResult
+from models.schemas import CurrentUser, UploadResult
 from routers.auth import require_jwt
 from services.ingestion import graph_builder, parsers
 
@@ -38,7 +38,7 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter(tags=["Upload"])
 
-_AuthDep = Annotated[object, Depends(require_jwt)]
+_AuthDep = Annotated[CurrentUser, Depends(require_jwt)]
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -94,7 +94,7 @@ async def upload_taxpayers(
     valid_rows, error_rows = parsers.parse_file(raw, fname, "taxpayers")
 
     try:
-        loaded = graph_builder.upsert_taxpayers_batch(valid_rows)  # type: ignore[arg-type]
+        loaded = graph_builder.upsert_taxpayers_batch(valid_rows, user_id=_token.user_id)  # type: ignore[arg-type]
     except Exception as exc:
         logger.exception("Neo4j write failed for taxpayers: %s", exc)
         raise HTTPException(
@@ -125,7 +125,7 @@ async def upload_invoices(
     valid_rows, error_rows = parsers.parse_file(raw, fname, "invoices")
 
     try:
-        loaded = graph_builder.upsert_invoices_batch(valid_rows)  # type: ignore[arg-type]
+        loaded = graph_builder.upsert_invoices_batch(valid_rows, user_id=_token.user_id)  # type: ignore[arg-type]
     except Exception as exc:
         logger.exception("Neo4j write failed for invoices: %s", exc)
         raise HTTPException(
@@ -156,7 +156,7 @@ async def upload_gstr1(
     valid_rows, error_rows = parsers.parse_file(raw, fname, "gstr1")
 
     try:
-        loaded = graph_builder.upsert_gstr1_batch(valid_rows)  # type: ignore[arg-type]
+        loaded = graph_builder.upsert_gstr1_batch(valid_rows, user_id=_token.user_id)  # type: ignore[arg-type]
     except Exception as exc:
         logger.exception("Neo4j write failed for GSTR1: %s", exc)
         raise HTTPException(
@@ -187,7 +187,7 @@ async def upload_gstr2b(
     valid_rows, error_rows = parsers.parse_file(raw, fname, "gstr2b")
 
     try:
-        loaded = graph_builder.upsert_gstr2b_batch(valid_rows)  # type: ignore[arg-type]
+        loaded = graph_builder.upsert_gstr2b_batch(valid_rows, user_id=_token.user_id)  # type: ignore[arg-type]
     except Exception as exc:
         logger.exception("Neo4j write failed for GSTR2B: %s", exc)
         raise HTTPException(
@@ -218,7 +218,7 @@ async def upload_gstr3b(
     valid_rows, error_rows = parsers.parse_file(raw, fname, "gstr3b")
 
     try:
-        loaded = graph_builder.upsert_gstr3b_batch(valid_rows)  # type: ignore[arg-type]
+        loaded = graph_builder.upsert_gstr3b_batch(valid_rows, user_id=_token.user_id)  # type: ignore[arg-type]
     except Exception as exc:
         logger.exception("Neo4j write failed for GSTR3B: %s", exc)
         raise HTTPException(
@@ -249,7 +249,7 @@ async def upload_tax_payments(
     valid_rows, error_rows = parsers.parse_file(raw, fname, "tax_payments")
 
     try:
-        loaded = graph_builder.upsert_tax_payments_batch(valid_rows)  # type: ignore[arg-type]
+        loaded = graph_builder.upsert_tax_payments_batch(valid_rows, user_id=_token.user_id)  # type: ignore[arg-type]
     except Exception as exc:
         logger.exception("Neo4j write failed for TaxPayments: %s", exc)
         raise HTTPException(

@@ -36,10 +36,10 @@ logger = logging.getLogger(__name__)
 # ---------------------------------------------------------------------------
 _CIRCULAR_3_QUERY = """
 MATCH
-    (i1:Invoice)-[:ISSUED_BY]->(a:Taxpayer),
-    (i1)-[:RECEIVED_BY]->(b:Taxpayer),
+    (i1:Invoice)-[:ISSUED_BY]->(a:Taxpayer {user_id: $uid}),
+    (i1)-[:RECEIVED_BY]->(b:Taxpayer {user_id: $uid}),
     (i2:Invoice)-[:ISSUED_BY]->(b),
-    (i2)-[:RECEIVED_BY]->(c:Taxpayer),
+    (i2)-[:RECEIVED_BY]->(c:Taxpayer {user_id: $uid}),
     (i3:Invoice)-[:ISSUED_BY]->(c),
     (i3)-[:RECEIVED_BY]->(a)
 WHERE a <> b AND b <> c AND a <> c
@@ -60,8 +60,8 @@ LIMIT 500
 # ---------------------------------------------------------------------------
 _CIRCULAR_2_QUERY = """
 MATCH
-    (i1:Invoice)-[:ISSUED_BY]->(a:Taxpayer),
-    (i1)-[:RECEIVED_BY]->(b:Taxpayer),
+    (i1:Invoice)-[:ISSUED_BY]->(a:Taxpayer {user_id: $uid}),
+    (i1)-[:RECEIVED_BY]->(b:Taxpayer {user_id: $uid}),
     (i2:Invoice)-[:ISSUED_BY]->(b),
     (i2)-[:RECEIVED_BY]->(a)
 WHERE a <> b AND a.gstin < b.gstin
@@ -80,16 +80,17 @@ def _cycle_id(gstins: list[str]) -> str:
     return hashlib.md5(key.encode()).hexdigest()[:12]
 
 
-def detect_circular_trades() -> list[CircularTradeResult]:
+def detect_circular_trades(user_id: str = "") -> list[CircularTradeResult]:
     """
     Query the graph for circular trading patterns.
     Returns a deduplicated list of CircularTradeResult.
     """
+    uid = user_id or ""
     results: dict[str, CircularTradeResult] = {}
 
     # ── 3-node loops ─────────────────────────────────────────────────────
     try:
-        rows3 = run_query(_CIRCULAR_3_QUERY)
+        rows3 = run_query(_CIRCULAR_3_QUERY, {"uid": uid})
     except Exception as exc:
         logger.error("Circular-trade 3-node query failed: %s", exc)
         rows3 = []
@@ -115,7 +116,7 @@ def detect_circular_trades() -> list[CircularTradeResult]:
 
     # ── 2-node back-and-forth loops ───────────────────────────────────────
     try:
-        rows2 = run_query(_CIRCULAR_2_QUERY)
+        rows2 = run_query(_CIRCULAR_2_QUERY, {"uid": uid})
     except Exception as exc:
         logger.error("Circular-trade 2-node query failed: %s", exc)
         rows2 = []

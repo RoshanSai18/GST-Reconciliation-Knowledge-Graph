@@ -15,15 +15,17 @@ from __future__ import annotations
 import logging
 from typing import Annotated
 
-from fastapi import APIRouter, HTTPException, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 
 from models.schemas import (
     AmendmentChainResult,
     CircularTradeResult,
+    CurrentUser,
     PatternSummary,
     PaymentDelayResult,
     RiskNetworkResult,
 )
+from routers.auth import require_jwt
 from services.patterns import (
     amendment_chain,
     circular_trade,
@@ -35,15 +37,17 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter(tags=["Pattern Detection"])
 
+_AuthDep = Annotated[CurrentUser, Depends(require_jwt)]
+
 
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
 
-def _safe(fn, label: str):
+def _safe(fn, label: str, user_id: str = ""):
     """Run a detector, returning [] and logging on failure."""
     try:
-        return fn()
+        return fn(user_id=user_id)
     except Exception as exc:
         logger.error("Pattern detector '%s' failed: %s", label, exc)
         return []
@@ -64,11 +68,12 @@ def _safe(fn, label: str):
         "lists so partial results are always available."
     ),
 )
-def get_all_patterns() -> PatternSummary:
-    ct  = _safe(circular_trade.detect_circular_trades,   "circular_trade")
-    pd_ = _safe(payment_delay.detect_payment_delays,     "payment_delay")
-    ac  = _safe(amendment_chain.detect_amendment_chains, "amendment_chain")
-    rn  = _safe(risk_network.detect_risk_networks,       "risk_network")
+def get_all_patterns(current_user: _AuthDep) -> PatternSummary:
+    uid = current_user.user_id
+    ct  = _safe(circular_trade.detect_circular_trades,   "circular_trade",  uid)
+    pd_ = _safe(payment_delay.detect_payment_delays,     "payment_delay",   uid)
+    ac  = _safe(amendment_chain.detect_amendment_chains, "amendment_chain", uid)
+    rn  = _safe(risk_network.detect_risk_networks,       "risk_network",    uid)
 
     return PatternSummary(
         circular_trades=ct,
@@ -92,9 +97,9 @@ def get_all_patterns() -> PatternSummary:
         "Each result includes the ordered GSTIN loop and the invoice IDs involved."
     ),
 )
-def get_circular_trades() -> list[CircularTradeResult]:
+def get_circular_trades(current_user: _AuthDep) -> list[CircularTradeResult]:
     try:
-        return circular_trade.detect_circular_trades()
+        return circular_trade.detect_circular_trades(user_id=current_user.user_id)
     except Exception as exc:
         logger.exception("Circular trade detection failed: %s", exc)
         raise HTTPException(
@@ -118,12 +123,13 @@ def get_circular_trades() -> list[CircularTradeResult]:
     ),
 )
 def get_payment_delays(
+    current_user: _AuthDep,
     min_invoices: Annotated[
         int, Query(ge=1, description="Minimum delayed invoices to flag a vendor")
     ] = 1,
 ) -> list[PaymentDelayResult]:
     try:
-        return payment_delay.detect_payment_delays(min_invoices=min_invoices)
+        return payment_delay.detect_payment_delays(min_invoices=min_invoices, user_id=current_user.user_id)
     except Exception as exc:
         logger.exception("Payment delay detection failed: %s", exc)
         raise HTTPException(
@@ -146,9 +152,9 @@ def get_payment_delays(
         "configured threshold (AMENDMENT_FLAG_COUNT config setting)."
     ),
 )
-def get_amendment_chains() -> list[AmendmentChainResult]:
+def get_amendment_chains(current_user: _AuthDep) -> list[AmendmentChainResult]:
     try:
-        return amendment_chain.detect_amendment_chains()
+        return amendment_chain.detect_amendment_chains(user_id=current_user.user_id)
     except Exception as exc:
         logger.exception("Amendment chain detection failed: %s", exc)
         raise HTTPException(
@@ -173,9 +179,9 @@ def get_amendment_chains() -> list[AmendmentChainResult]:
         "Taxpayer nodes first; returns an empty list otherwise."
     ),
 )
-def get_risk_networks() -> list[RiskNetworkResult]:
+def get_risk_networks(current_user: _AuthDep) -> list[RiskNetworkResult]:
     try:
-        return risk_network.detect_risk_networks()
+        return risk_network.detect_risk_networks(user_id=current_user.user_id)
     except Exception as exc:
         logger.exception("Risk network detection failed: %s", exc)
         raise HTTPException(
