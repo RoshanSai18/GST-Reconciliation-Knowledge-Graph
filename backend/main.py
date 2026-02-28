@@ -114,6 +114,7 @@ _register_router("routers.vendors",   "/api/vendors",   ["Vendors"])
 _register_router("routers.patterns",  "/api/patterns",  ["Pattern Detection"])
 _register_router("routers.graph",     "/api/graph",     ["Graph Export"])
 _register_router("routers.chat",      "/api/chat",      ["Chat"])
+_register_router("routers.whatsapp",  "/api/whatsapp",  ["WhatsApp"])
 
 
 # ---------------------------------------------------------------------------

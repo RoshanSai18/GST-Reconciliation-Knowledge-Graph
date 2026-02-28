@@ -143,6 +143,13 @@ export const chatApi = {
     api.get('/chat/health'),
 }
 
+export const whatsappApi = {
+  send: (to: string, message: string) =>
+    api.post('/whatsapp/send', { to, message }),
+  sendReport: (to: string, analysis: Record<string, unknown>) =>
+    api.post('/whatsapp/send-report', { to, analysis }),
+}
+
 export { api }
 
 function upload(url: string, file: File) {

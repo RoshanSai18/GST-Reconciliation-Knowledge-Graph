@@ -10,11 +10,13 @@ const PAGE_META: Record<string, { title: string; sub: string }> = {
   '/graph':     { title: 'Supply Chain Graph Explorer',  sub: 'Visualise entity relationships' },
   '/patterns':  { title: 'Anomaly Pattern Detection',    sub: 'Circular trades, delays & amendments' },
   '/upload':    { title: 'Data Ingestion',               sub: 'Upload taxpayer and return data' },
+  '/chat':      { title: 'GST Assistant',                 sub: 'Ask questions about GST reconciliation' },
+  '/whatsapp':  { title: 'WhatsApp Alerts',              sub: 'Send GST reports & notifications via WhatsApp' },
 }
 
 export default function TopBar() {
   const { pathname } = useLocation()
-  const meta = PAGE_META[pathname] ?? { title: 'GraphGST', sub: '' }
+  const meta = PAGE_META[pathname] ?? { title: 'GSTInsights', sub: '' }
   const { logout, username } = useAuth()
 
   // Derive initials for the avatar

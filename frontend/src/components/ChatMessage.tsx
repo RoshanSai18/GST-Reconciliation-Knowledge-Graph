@@ -1,5 +1,5 @@
-import { MessageCircle, Bot, Volume2, Loader } from "lucide-react";
-import { useState, useEffect } from "react";
+import { ShieldCheck, Volume2, Loader, UserCircle } from "lucide-react";
+import { useState } from "react";
 
 interface Message {
   role: "user" | "assistant";
@@ -16,134 +16,84 @@ export function ChatMessage({ message, language = "en" }: ChatMessageProps) {
   const isUser = message.role === "user";
   const [isSpeaking, setIsSpeaking] = useState(false);
 
-  // Language to voice code mapping
   const getLanguageCode = (lang: string): string => {
     const langMap: Record<string, string> = {
-      en: "en-IN",
-      hi: "hi-IN",
-      te: "te-IN",
-      hi_IN: "hi-IN",
-      te_IN: "te-IN",
+      en: "en-IN", hi: "hi-IN", te: "te-IN",
+      hi_IN: "hi-IN", te_IN: "te-IN",
     };
     return langMap[lang] || "en-US";
   };
 
   const handleSpeak = () => {
-    // Cancel existing speech
     window.speechSynthesis.cancel();
-
-    if (isSpeaking) {
-      setIsSpeaking(false);
-      return;
-    }
-
+    if (isSpeaking) { setIsSpeaking(false); return; }
     try {
-      // Stop any ongoing speech first
-      if (window.speechSynthesis.speaking) {
-        window.speechSynthesis.cancel();
-      }
-
-      // Create fresh utterance with full message
       const utterance = new SpeechSynthesisUtterance(message.content);
-
       const langCode = getLanguageCode(language);
-      console.log("🎤 Speech Language:", language, "→ Code:", langCode);
-
       utterance.lang = langCode;
       utterance.rate = 0.9;
-      utterance.pitch = 1;
-      utterance.volume = 1;
-
-      // Log available voices
       const voices = window.speechSynthesis.getVoices();
-      const matchingVoices = voices.filter((v) =>
-        v.lang.includes(langCode.split("-")[0])
-      );
-      console.log(`📢 Found ${matchingVoices.length} voices for ${langCode}`);
-      if (matchingVoices.length > 0) {
-        utterance.voice = matchingVoices[0];
-        console.log(`✓ Using voice: ${matchingVoices[0].name}`);
-      }
-
-      utterance.onstart = () => {
-        console.log("📢 Speaking:", message.content.substring(0, 50) + "...");
-        setIsSpeaking(true);
-      };
-
-      utterance.onend = () => {
-        console.log("✓ Finished speaking");
-        setIsSpeaking(false);
-      };
-
-      utterance.onerror = (event) => {
-        console.error("❌ Speech error:", event.error);
-        setIsSpeaking(false);
-      };
-
-      // Begin speaking
+      const match = voices.find(v => v.lang.includes(langCode.split("-")[0]));
+      if (match) utterance.voice = match;
+      utterance.onstart = () => setIsSpeaking(true);
+      utterance.onend = () => setIsSpeaking(false);
+      utterance.onerror = () => setIsSpeaking(false);
       window.speechSynthesis.speak(utterance);
-    } catch (error) {
-      console.error("Error in handleSpeak:", error);
-      setIsSpeaking(false);
-    }
+    } catch { setIsSpeaking(false); }
   };
 
   return (
-    <div className={`flex ${isUser ? "justify-end" : "justify-start"}`}>
-      <div className={`flex items-start gap-3 max-w-md group`}>
+    <div className={`flex ${isUser ? "justify-end" : "justify-start"} group`}>
+      <div className="flex items-start gap-2.5 max-w-[75%]">
+        {/* Advisor avatar */}
         {!isUser && (
-          <div className="flex-shrink-0 w-8 h-8 rounded-full bg-blue-100 flex items-center justify-center">
-            <Bot className="w-4 h-4 text-blue-600" />
+          <div className="flex-shrink-0 w-7 h-7 rounded-lg bg-accent-lt border border-accent/20 flex items-center justify-center mt-0.5">
+            <ShieldCheck size={13} className="text-accent" />
           </div>
         )}
 
-        <div className="flex flex-col gap-2">
-          <div
-            className={`${
-              isUser
-                ? "bg-blue-600 text-white rounded-2xl rounded-tr-none"
-                : "bg-gray-100 text-gray-900 rounded-2xl rounded-tl-none"
-            } px-4 py-3 break-words`}
-          >
-            <p className="text-sm leading-relaxed whitespace-pre-wrap">
-              {message.content}
-            </p>
-            <p
-              className={`text-xs mt-2 ${
-                isUser ? "text-blue-100" : "text-gray-500"
-              }`}
-            >
-              {new Date(message.timestamp).toLocaleTimeString([], {
-                hour: "2-digit",
-                minute: "2-digit",
-              })}
-            </p>
+        <div className="flex flex-col gap-1.5">
+          {/* Label */}
+          <span className={`text-[10px] font-semibold uppercase tracking-wider ${
+            isUser ? "text-right text-muted" : "text-muted"
+          }`}>
+            {isUser ? "You" : "GST Advisory"}
+          </span>
+
+          {/* Bubble */}
+          <div className={`px-4 py-3 rounded-xl text-[13px] leading-relaxed whitespace-pre-wrap break-words ${
+            isUser
+              ? "bg-accent text-white rounded-tr-sm"
+              : "bg-surface border border-[#E4E4E7] text-foreground rounded-tl-sm shadow-sm"
+          }`}>
+            {message.content}
           </div>
 
-          {!isUser && (
-            <button
-              onClick={handleSpeak}
-              className="self-start ml-0 px-3 py-1.5 rounded-lg bg-blue-50 hover:bg-blue-100 text-blue-600 transition-colors flex items-center gap-2 text-xs font-medium"
-              title={isSpeaking ? "Stop" : "Read aloud"}
-            >
-              {isSpeaking ? (
-                <>
-                  <Loader className="w-3.5 h-3.5 animate-spin" />
-                  <span>Playing...</span>
-                </>
-              ) : (
-                <>
-                  <Volume2 className="w-3.5 h-3.5" />
-                  <span>Read aloud</span>
-                </>
-              )}
-            </button>
-          )}
+          {/* Footer row */}
+          <div className={`flex items-center gap-2 ${ isUser ? "justify-end" : "justify-start" }`}>
+            <span className="text-[10px] text-subtle">
+              {new Date(message.timestamp).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
+            </span>
+            {!isUser && (
+              <button
+                onClick={handleSpeak}
+                className="flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-medium text-muted hover:text-accent hover:bg-accent-lt transition-all"
+                title={isSpeaking ? "Stop" : "Read aloud"}
+              >
+                {isSpeaking ? (
+                  <><Loader size={10} className="animate-spin" /><span>Playing</span></>
+                ) : (
+                  <><Volume2 size={10} /><span>Read aloud</span></>
+                )}
+              </button>
+            )}
+          </div>
         </div>
 
+        {/* User avatar */}
         {isUser && (
-          <div className="flex-shrink-0 w-8 h-8 rounded-full bg-blue-600 flex items-center justify-center">
-            <MessageCircle className="w-4 h-4 text-white" />
+          <div className="flex-shrink-0 w-7 h-7 rounded-lg bg-accent flex items-center justify-center mt-0.5">
+            <UserCircle size={13} className="text-white" />
           </div>
         )}
       </div>

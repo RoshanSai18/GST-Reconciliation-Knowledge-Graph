@@ -93,10 +93,17 @@ async def chat(request: ChatRequest) -> ChatResponse:
     except HTTPException:
         raise
     except Exception as e:
+        err_str = str(e)
         logger.exception("Chat error")
+        # Surface quota / rate-limit errors as 429 so the UI can show a clear message
+        if "429" in err_str or "RESOURCE_EXHAUSTED" in err_str or "quota" in err_str.lower():
+            raise HTTPException(
+                status_code=429,
+                detail="Gemini API quota exceeded. Please wait a moment and try again, or generate a new API key at https://aistudio.google.com/apikey",
+            ) from e
         raise HTTPException(
             status_code=500,
-            detail=f"Error generating response: {str(e)}",
+            detail=f"Error generating response: {err_str}",
         ) from e
 
 

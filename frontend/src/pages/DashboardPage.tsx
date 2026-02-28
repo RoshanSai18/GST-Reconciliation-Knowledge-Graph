@@ -1,18 +1,20 @@
-import { useEffect, useState, useRef } from 'react'
+﻿import { useEffect, useState } from 'react'
 import {
   IndianRupee, AlertTriangle, ShieldAlert, TrendingUp,
-  RefreshCw, Zap, XCircle, CheckCircle2
+  Activity, BarChart2, PieChart as PieIcon,
+  Zap, RefreshCw, XCircle, CheckCircle2,
 } from 'lucide-react'
+import TrustGauge from '@/components/shared/TrustGauge'
 import {
+  AreaChart, Area,
   BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer,
-  PieChart, Pie, Cell,
+  PieChart, Pie, Cell, Legend,
 } from 'recharts'
 import StatCard from '@/components/shared/StatCard'
-import TrustGauge from '@/components/shared/TrustGauge'
 import { graphApi, reconcileApi, vendorsApi } from '@/lib/api'
 import { fmtCurrency } from '@/lib/utils'
 
-// ── Types ────────────────────────────────────────────────────────────────────
+// â”€â”€ Types â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 interface GraphStats {
   nodes:               Record<string, number>
   relationships:       Record<string, number>
@@ -21,13 +23,60 @@ interface GraphStats {
 }
 interface RecStats { total: number; valid: number; warning: number; high_risk: number; pending: number }
 
-// ── Dashboard ─────────────────────────────────────────────────────────────────
+// â”€â”€ Trend mock data (6 months) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+const TREND_LABELS = ['Aug', 'Sep', 'Oct', 'Nov', 'Dec', 'Jan']
+const MOCK_TREND = [
+  { month: 'Aug', valid: 2620, warning: 820,  highRisk: 810  },
+  { month: 'Sep', valid: 2720, warning: 845,  highRisk: 830  },
+  { month: 'Oct', valid: 2950, warning: 860,  highRisk: 850  },
+  { month: 'Nov', valid: 3100, warning: 870,  highRisk: 855  },
+  { month: 'Dec', valid: 3280, warning: 860,  highRisk: 848  },
+  { month: 'Jan', valid: 3390, warning: 878,  highRisk: 858  },
+]
+
+// â”€â”€ Tooltip style â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+const TT_STYLE = {
+  background: '#fff',
+  border: 'none',
+  borderRadius: 10,
+  fontSize: 12,
+  color: '#18181B',
+  boxShadow: '0 4px 16px rgba(0,0,0,0.10)',
+}
+
+// â”€â”€ Chart card wrapper â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+function ChartCard({
+  icon: Icon, title, sub, iconBg, children,
+}: {
+  icon: React.ComponentType<{ size?: number | string; className?: string }>
+  title: string
+  sub:   string
+  iconBg: string
+  children: React.ReactNode
+}) {
+  return (
+    <div className="bg-surface rounded-2xl shadow-card p-5 flex flex-col gap-4">
+      <div className="flex items-center justify-between">
+        <div>
+          <h3 className="text-[14px] font-bold text-foreground">{title}</h3>
+          <p className="text-[11px] text-muted mt-0.5">{sub}</p>
+        </div>
+        <div className={`w-9 h-9 rounded-xl flex items-center justify-center ${iconBg}`}>
+          <Icon size={16} className="opacity-70" />
+        </div>
+      </div>
+      {children}
+    </div>
+  )
+}
+
+// â”€â”€ Dashboard â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 export default function DashboardPage() {
   const [gStats,  setGStats]  = useState<GraphStats | null>(null)
   const [rStats,  setRStats]  = useState<RecStats  | null>(null)
   const [vendors, setVendors] = useState<{ total: number; high: number } | null>(null)
-  const [loading, setLoading] = useState(true)
-  const [selected, setSelected] = useState<string | null>('Vendor C')
+  const [selected, setSelected] = useState<string | null>(null)
+  const [loading,  setLoading]  = useState(true)
 
   useEffect(() => {
     Promise.allSettled([
@@ -45,63 +94,70 @@ export default function DashboardPage() {
     })
   }, [])
 
-  // Derived KPI values (fall back to mock when API not wired yet)
-  const totalInvoices  = rStats?.total        ?? gStats?.nodes?.Invoice ?? 5180
-  const highRisk       = rStats?.high_risk    ?? 930
-  const itcAtRisk      = highRisk * 4200
-  const vendorCount    = vendors?.total       ?? gStats?.nodes?.Taxpayer ?? 100
-  const highRiskVendors= vendors?.high        ?? 3
+  // â”€â”€ KPI derivation â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  const totalInvoices   = rStats?.total     ?? gStats?.nodes?.Invoice ?? 11390
+  const highRisk        = rStats?.high_risk ?? 11390
+  const itcClaimed      = fmtCurrency(totalInvoices * 8500)
+  const itcAtRisk       = fmtCurrency(highRisk * 4200)
+  const vendorCount     = vendors?.total    ?? gStats?.nodes?.Taxpayer ?? 102
+  const highRiskVendors = vendors?.high     ?? 0
 
-  // Bar chart data — muted professional palette
-  const barData = rStats
-    ? [
-        { name: 'Valid',     value: rStats.valid,    fill: '#059669' },
-        { name: 'Warning',   value: rStats.warning,  fill: '#D97706' },
-        { name: 'High-Risk', value: rStats.high_risk,fill: '#B91C1C' },
-        { name: 'Pending',   value: rStats.pending,  fill: '#A1A1AA' },
-      ]
-    : [
-        { name: 'Valid',     value: 3248, fill: '#059669' },
-        { name: 'Warning',   value: 850,  fill: '#D97706' },
-        { name: 'High-Risk', value: 930,  fill: '#B91C1C' },
-        { name: 'Pending',   value: 152,  fill: '#A1A1AA' },
-      ]
+  // â”€â”€ Bar chart data â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  const barData = [
+    { name: 'Valid',     value: rStats?.valid     ?? 0    },
+    { name: 'Warning',   value: rStats?.warning   ?? 0    },
+    { name: 'High-Risk', value: rStats?.high_risk ?? 11390},
+    { name: 'Pending',   value: rStats?.pending   ?? 0    },
+  ]
+  const BAR_COLORS: Record<string, string> = {
+    Valid: '#059669', Warning: '#D97706', 'High-Risk': '#B91C1C', Pending: '#A1A1AA',
+  }
 
-  // Pie chart data from graph node counts
-  const pieData = gStats
+  // â”€â”€ Pie (donut) chart data â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  const rawPie = gStats
     ? Object.entries(gStats.nodes).map(([k, v]) => ({ name: k, value: v }))
     : [
-        { name: 'Invoice',     value: 5180 },
-        { name: 'TaxPayment',  value: 4930 },
-        { name: 'GSTR1',       value: 600  },
-        { name: 'GSTR3B',      value: 600  },
-        { name: 'Taxpayer',    value: 100  },
+        { name: 'Invoice',    value: 5180 },
+        { name: 'TaxPayment', value: 4930 },
+        { name: 'GSTR2B',     value: 620  },
+        { name: 'GSTR3B',     value: 600  },
+        { name: 'GSTR1',      value: 560  },
+        { name: 'Taxpayer',   value: 100  },
       ]
-  const PIE_COLORS = ['#4F46E5','#059669','#D97706','#B91C1C','#65A30D','#CA8A04']
+  const PIE_COLORS = ['#4F46E5', '#059669', '#D97706', '#B91C1C', '#65A30D', '#0EA5E9']
+
+  // â”€â”€ Trend data (augment with real if available) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  const trendData = rStats
+    ? MOCK_TREND.map((m, i) =>
+        i === MOCK_TREND.length - 1
+          ? { ...m, valid: rStats.valid, warning: rStats.warning, highRisk: rStats.high_risk }
+          : m
+      )
+    : MOCK_TREND
 
   return (
     <div className="space-y-6 animate-fade-in">
 
-      {/* KPI Row */}
+      {/* â”€â”€ Row 1: KPI Stat Cards â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */}
       <div className="grid grid-cols-2 xl:grid-cols-4 gap-4">
         <StatCard
           title="ITC Claimed"
-          value={fmtCurrency(totalInvoices * 8500)}
+          value={itcClaimed}
           subtitle={`${totalInvoices.toLocaleString()} invoices`}
           icon={TrendingUp}
           accent="green"
         />
         <StatCard
           title="ITC at Risk"
-          value={fmtCurrency(itcAtRisk)}
-          subtitle={`${highRisk} high-risk invoices`}
+          value={itcAtRisk}
+          subtitle={`${highRisk.toLocaleString()} high-risk invoices`}
           icon={IndianRupee}
           accent="red"
           glow
         />
         <StatCard
           title="Active Anomalies"
-          value={`${highRisk} Detected`}
+          value={`${highRisk.toLocaleString()} Detected`}
           subtitle="Across all periods"
           icon={AlertTriangle}
           accent="amber"
@@ -115,7 +171,112 @@ export default function DashboardPage() {
         />
       </div>
 
-      {/* Main split pane */}
+      {/* â”€â”€ Row 2: Charts â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */}
+      <div className="grid grid-cols-1 xl:grid-cols-3 gap-6">
+
+        {/* 1 â€” Invoice Volume Trend (area-line) */}
+        <ChartCard
+          icon={Activity}
+          title="Invoice Volume Trend"
+          sub="6-month reconciliation activity"
+          iconBg="bg-accent-lt text-accent"
+        >
+          <ResponsiveContainer width="100%" height={200}>
+            <AreaChart data={trendData} margin={{ top: 4, right: 4, bottom: 0, left: -20 }}>
+              <defs>
+                <linearGradient id="gValid"   x1="0" y1="0" x2="0" y2="1">
+                  <stop offset="5%"  stopColor="#059669" stopOpacity={0.18} />
+                  <stop offset="95%" stopColor="#059669" stopOpacity={0} />
+                </linearGradient>
+                <linearGradient id="gWarning" x1="0" y1="0" x2="0" y2="1">
+                  <stop offset="5%"  stopColor="#D97706" stopOpacity={0.15} />
+                  <stop offset="95%" stopColor="#D97706" stopOpacity={0} />
+                </linearGradient>
+                <linearGradient id="gHigh"    x1="0" y1="0" x2="0" y2="1">
+                  <stop offset="5%"  stopColor="#B91C1C" stopOpacity={0.15} />
+                  <stop offset="95%" stopColor="#B91C1C" stopOpacity={0} />
+                </linearGradient>
+              </defs>
+              <XAxis dataKey="month" tick={{ fill: '#A1A1AA', fontSize: 11 }} axisLine={false} tickLine={false} />
+              <YAxis tick={{ fill: '#A1A1AA', fontSize: 10 }} axisLine={false} tickLine={false} />
+              <Tooltip contentStyle={TT_STYLE} cursor={{ stroke: '#E4E4E7' }} />
+              <Area type="monotone" dataKey="valid"    name="Valid"     stroke="#059669" strokeWidth={2} fill="url(#gValid)"   dot={false} />
+              <Area type="monotone" dataKey="warning"  name="Warning"   stroke="#D97706" strokeWidth={2} fill="url(#gWarning)" dot={false} />
+              <Area type="monotone" dataKey="highRisk" name="High-Risk" stroke="#B91C1C" strokeWidth={2} fill="url(#gHigh)"    dot={false} />
+            </AreaChart>
+          </ResponsiveContainer>
+          {/* Legend */}
+          <div className="flex items-center gap-4 justify-center">
+            {[['#059669','Valid'],['#D97706','Warning'],['#B91C1C','High-Risk']].map(([c,l]) => (
+              <div key={l} className="flex items-center gap-1.5">
+                <span className="w-2.5 h-2.5 rounded-full" style={{ background: c }} />
+                <span className="text-[11px] text-muted">{l}</span>
+              </div>
+            ))}
+          </div>
+        </ChartCard>
+
+        {/* 2 â€” Invoice Status Bar Chart */}
+        <ChartCard
+          icon={BarChart2}
+          title="Invoice Status"
+          sub="Current period breakdown"
+          iconBg="bg-accent-lt text-accent"
+        >
+          <ResponsiveContainer width="100%" height={200}>
+            <BarChart data={barData} barSize={32} margin={{ top: 4, right: 4, bottom: 0, left: -20 }}>
+              <XAxis dataKey="name" tick={{ fill: '#A1A1AA', fontSize: 11 }} axisLine={false} tickLine={false} />
+              <YAxis tick={{ fill: '#A1A1AA', fontSize: 10 }} axisLine={false} tickLine={false} />
+              <Tooltip contentStyle={TT_STYLE} cursor={{ fill: 'rgba(0,0,0,0.03)' }} />
+              <Bar dataKey="value" name="Count" radius={[5, 5, 0, 0]}>
+                {barData.map((d) => (
+                  <Cell key={d.name} fill={BAR_COLORS[d.name]} />
+                ))}
+              </Bar>
+            </BarChart>
+          </ResponsiveContainer>
+        </ChartCard>
+
+        {/* 3 â€” Knowledge Graph Nodes Donut */}
+        <ChartCard
+          icon={PieIcon}
+          title="Knowledge Graph Nodes"
+          sub="Entity type distribution"
+          iconBg="bg-accent-lt text-accent"
+        >
+          <ResponsiveContainer width="100%" height={200}>
+            <PieChart>
+              <Pie
+                data={rawPie}
+                cx="50%"
+                cy="50%"
+                innerRadius={55}
+                outerRadius={85}
+                dataKey="value"
+                paddingAngle={3}
+                strokeWidth={0}
+              >
+                {rawPie.map((_, i) => (
+                  <Cell key={i} fill={PIE_COLORS[i % PIE_COLORS.length]} />
+                ))}
+              </Pie>
+              <Tooltip contentStyle={TT_STYLE} />
+            </PieChart>
+          </ResponsiveContainer>
+          {/* Custom legend */}
+          <div className="flex flex-wrap gap-x-3 gap-y-1.5 justify-center">
+            {rawPie.map((d, i) => (
+              <div key={d.name} className="flex items-center gap-1.5">
+                <span className="w-2 h-2 rounded-full flex-shrink-0" style={{ background: PIE_COLORS[i % PIE_COLORS.length] }} />
+                <span className="text-[11px] text-muted">{d.name}</span>
+              </div>
+            ))}
+          </div>
+        </ChartCard>
+
+      </div>
+
+      {/* ── Row 3: Supply Chain Traversal + Risk Profile ──────────────────── */}
       <div className="grid grid-cols-1 xl:grid-cols-[1fr_380px] gap-6" style={{ minHeight: '480px' }}>
 
         {/* LEFT — Graph Explorer */}
@@ -125,139 +286,149 @@ export default function DashboardPage() {
               <h2 className="text-sm font-semibold text-foreground">Real-Time Supply Chain Traversal</h2>
               <p className="text-xs text-muted mt-0.5">Click a node to inspect in the Risk Profile panel →</p>
             </div>
-            <span className="flex items-center gap-1.5 text-xs text-emerald bg-emerald/10 border border-emerald/20 px-2.5 py-1 rounded-full font-medium">
-              <span className="w-1.5 h-1.5 rounded-full bg-emerald animate-pulse" />
+            <span className="flex items-center gap-1.5 text-xs text-emerald-600 bg-emerald-50 border border-emerald-200 px-2.5 py-1 rounded-full font-medium">
+              <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
               Live
             </span>
           </div>
-          <div className="flex-1 graph-canvas relative p-8 flex items-center justify-center">
+          <div className="flex-1 relative flex items-center justify-center"
+            style={{
+              background: '#FFFFFF',
+              backgroundImage: 'radial-gradient(circle, #e5e5e5 1px, transparent 1px)',
+              backgroundSize: '24px 24px',
+            }}
+          >
             <GraphSvg onSelect={setSelected} selected={selected} />
-          </div>
-
-          {/* Bottom bar charts row */}
-          <div className="px-5 py-4 grid grid-cols-2 gap-6" style={{ borderTop: '1px solid #F4F4F5' }}>
-            <div>
-              <p className="label-cap mb-2">Invoice Status Distribution</p>
-              <ResponsiveContainer width="100%" height={100}>
-                <BarChart data={barData} barSize={16} margin={{ top: 2, right: 0, bottom: 0, left: 0 }}>
-                  <XAxis dataKey="name" tick={{ fill: '#A1A1AA', fontSize: 10 }} axisLine={false} tickLine={false} />
-                  <YAxis hide />
-                  <Tooltip
-                    contentStyle={{ background: '#FFFFFF', border: 'none', borderRadius: 10, fontSize: 12, color: '#18181B', boxShadow: '0 4px 16px rgba(0,0,0,0.10)' }}
-                    cursor={{ fill: 'rgba(0,0,0,0.03)' }}
-                  />
-                  <Bar dataKey="value" radius={[5,5,0,0]}>
-                    {barData.map((d, i) => <Cell key={i} fill={d.fill} />)}
-                  </Bar>
-                </BarChart>
-              </ResponsiveContainer>
-            </div>
-            <div>
-              <p className="label-cap mb-2">Graph Node Distribution</p>
-              <ResponsiveContainer width="100%" height={100}>
-                <PieChart>
-                  <Pie data={pieData} cx="50%" cy="50%" innerRadius={26} outerRadius={42} dataKey="value" paddingAngle={4}>
-                    {pieData.map((_, i) => (
-                      <Cell key={i} fill={PIE_COLORS[i % PIE_COLORS.length]} />
-                    ))}
-                  </Pie>
-                  <Tooltip
-                    contentStyle={{ background: '#FFFFFF', border: 'none', borderRadius: 10, fontSize: 12, color: '#18181B', boxShadow: '0 4px 16px rgba(0,0,0,0.10)' }}
-                  />
-                </PieChart>
-              </ResponsiveContainer>
-            </div>
           </div>
         </div>
 
         {/* RIGHT — Risk Profile Sidebar */}
         <RiskSidebar selected={selected} loading={loading} />
       </div>
+
     </div>
   )
 }
 
-// ── Graph SVG mock (per mega-prompt spec) ─────────────────────────────────────
+// ── Graph SVG (Excalidraw / hand-drawn style) ─────────────────────────────────
 const NODES = [
-  { id: 'your_co',  x: 320, y: 200, label: 'Your Company',   sub: 'GSTIN: 27AADCB1001A1Z1', color: '#4F46E5', r: 38 },
-  { id: 'vendor_a', x: 120, y: 100, label: 'Vendor A',        sub: 'GSTIN: 29AADCA1001B1Z2', color: '#059669', r: 30 },
-  { id: 'vendor_b', x: 120, y: 300, label: 'Vendor B',        sub: 'GSTIN: 07AADCB3201C1Z3', color: '#059669', r: 30 },
-  { id: 'vendor_c', x: 530, y: 200, label: 'Vendor C',        sub: '27AADCB2230M1Z2',        color: '#B91C1C', r: 30 },
-  { id: 'inv_992',  x: 680, y: 120, label: 'Invoice #992',    sub: '₹4,20,000',               color: '#B91C1C', r: 24 },
-  { id: 'eway',     x: 800, y: 220, label: 'e-Way Bill',      sub: 'NOT FOUND',               color: '#B91C1C', r: 22 },
+  { id: 'your_co',  x: 300, y: 210, label: 'Your Company',   sub: 'GSTIN: 27AADCB1001A1Z1', color: '#4F46E5', bg: '#EEF2FF', r: 52 },
+  { id: 'vendor_a', x: 100, y: 95,  label: 'Vendor A',       sub: 'GSTIN: 29AADCA1001B1Z2', color: '#059669', bg: '#ECFDF5', r: 42 },
+  { id: 'vendor_b', x: 100, y: 330, label: 'Vendor B',       sub: 'GSTIN: 07AADCB3201C1Z3', color: '#059669', bg: '#ECFDF5', r: 42 },
+  { id: 'vendor_c', x: 540, y: 210, label: 'Vendor C',       sub: '27AADCB2230M1Z2',        color: '#DC2626', bg: '#FEF2F2', r: 44 },
+  { id: 'inv_992',  x: 730, y: 120, label: 'Invoice #992',   sub: '₹4,20,000',               color: '#DC2626', bg: '#FEF2F2', r: 38 },
+  { id: 'eway',     x: 870, y: 260, label: 'e-Way Bill',     sub: 'NOT FOUND',               color: '#DC2626', bg: '#FEF2F2', r: 36 },
 ]
 const EDGES = [
-  { s: 'your_co', t: 'vendor_a', alert: false },
-  { s: 'your_co', t: 'vendor_b', alert: false },
-  { s: 'your_co', t: 'vendor_c', alert: true  },
-  { s: 'vendor_c', t: 'inv_992', alert: true  },
-  { s: 'inv_992',  t: 'eway',    alert: true  },
+  { s: 'your_co',  t: 'vendor_a', alert: false, label: 'supplies' },
+  { s: 'your_co',  t: 'vendor_b', alert: false, label: 'supplies' },
+  { s: 'your_co',  t: 'vendor_c', alert: true,  label: 'flagged' },
+  { s: 'vendor_c', t: 'inv_992',  alert: true,  label: 'issued' },
+  { s: 'inv_992',  t: 'eway',     alert: true,  label: 'missing link' },
 ]
-// alert edge color updated to muted danger
+
+/* Attempt a slightly wobbly path to mimic hand-drawn lines */
+function wobblyLine(x1: number, y1: number, x2: number, y2: number) {
+  const mx = (x1 + x2) / 2 + (Math.sin(x1 + y2) * 6)
+  const my = (y1 + y2) / 2 + (Math.cos(x2 + y1) * 6)
+  return `M${x1},${y1} Q${mx},${my} ${x2},${y2}`
+}
 
 function GraphSvg({ onSelect, selected }: { onSelect: (s: string | null) => void; selected: string | null }) {
   return (
-    <svg viewBox="0 0 950 380" className="w-full max-w-2xl" style={{ maxHeight: 300 }}>
+    <svg viewBox="0 0 980 430" className="w-full" style={{ maxHeight: 400, padding: '12px' }}>
+      <style>{`
+        .sketch-label { font-family: 'Inter', system-ui, sans-serif; }
+      `}</style>
       <defs>
-        <marker id="arr_n"  markerWidth="8" markerHeight="8" refX="6" refY="3" orient="auto">
-          <path d="M0,0 L8,3 L0,6 Z" fill="#D4D4D8" />
+        <marker id="arr_n" markerWidth="10" markerHeight="10" refX="8" refY="4" orient="auto">
+          <path d="M1,1 L9,4 L1,7" fill="none" stroke="#A1A1AA" strokeWidth="1.5" strokeLinecap="round" />
         </marker>
-        <marker id="arr_r"  markerWidth="8" markerHeight="8" refX="6" refY="3" orient="auto">
-          <path d="M0,0 L8,3 L0,6 Z" fill="#B91C1C" />
+        <marker id="arr_r" markerWidth="10" markerHeight="10" refX="8" refY="4" orient="auto">
+          <path d="M1,1 L9,4 L1,7" fill="none" stroke="#DC2626" strokeWidth="1.5" strokeLinecap="round" />
         </marker>
-        <filter id="glow_r">
-          <feGaussianBlur stdDeviation="3" result="blur" />
-          <feComposite in="SourceGraphic" in2="blur" operator="over" />
+        <filter id="sketchy">
+          <feTurbulence type="turbulence" baseFrequency="0.03" numOctaves="4" result="noise" />
+          <feDisplacementMap in="SourceGraphic" in2="noise" scale="1.2" />
         </filter>
       </defs>
 
-      {/* Edges */}
+      {/* Edges — hand-drawn style curves */}
       {EDGES.map((e, i) => {
         const s = NODES.find(n => n.id === e.s)!
         const t = NODES.find(n => n.id === e.t)!
+        const mx = (s.x + t.x) / 2
+        const my = (s.y + t.y) / 2
         return (
-          <line
-            key={i}
-            x1={s.x} y1={s.y} x2={t.x} y2={t.y}
-            stroke={e.alert ? '#B91C1C' : '#D4D4D8'}
-            strokeWidth={e.alert ? 2.5 : 1.5}
-            strokeDasharray={e.alert ? '8 4' : undefined}
-            markerEnd={e.alert ? 'url(#arr_r)' : 'url(#arr_n)'}
-            style={e.alert ? { animation: 'dash 1s linear infinite' } : undefined}
-            opacity={e.alert ? 1 : 0.6}
-          />
+          <g key={i}>
+            <path
+              d={wobblyLine(s.x, s.y, t.x, t.y)}
+              fill="none"
+              stroke={e.alert ? '#DC2626' : '#A1A1AA'}
+              strokeWidth={e.alert ? 2 : 1.5}
+              strokeDasharray={e.alert ? '10 5' : undefined}
+              strokeLinecap="round"
+              markerEnd={e.alert ? 'url(#arr_r)' : 'url(#arr_n)'}
+              opacity={0.7}
+              filter="url(#sketchy)"
+            />
+            {/* Edge label */}
+            <rect
+              x={mx - 28} y={my - 10} width={56} height={18} rx={6}
+              fill="white" opacity={0.85}
+            />
+            <text
+              x={mx} y={my + 3}
+              textAnchor="middle"
+              className="sketch-label"
+              fontSize={13}
+              fill={e.alert ? '#DC2626' : '#71717A'}
+              opacity={0.8}
+            >{e.label}</text>
+          </g>
         )
       })}
 
-      {/* Nodes */}
+      {/* Nodes — rounded card style with soft shadows */}
       {NODES.map(node => {
-        const isSel   = selected === node.label
-        const isAlert = node.color === '#EF4444'
+        const isSel = selected === node.label
         return (
-          <g
-            key={node.id}
-            style={{ cursor: 'pointer' }}
-            onClick={() => onSelect(isSel ? null : node.label)}
-          >
-            {isAlert && (
-              <circle cx={node.x} cy={node.y} r={node.r + 10} fill="none" stroke="#EF444444" strokeWidth={2}>
-                <animate attributeName="r"   from={node.r + 6} to={node.r + 18} dur="1.5s" repeatCount="indefinite" />
-                <animate attributeName="opacity" from="0.5" to="0" dur="1.5s" repeatCount="indefinite" />
+          <g key={node.id} style={{ cursor: 'pointer' }} onClick={() => onSelect(isSel ? null : node.label)}>
+            {/* Soft outer glow for danger nodes */}
+            {node.color === '#DC2626' && (
+              <circle cx={node.x} cy={node.y} r={node.r + 12} fill="none" stroke="#DC262620" strokeWidth={2}>
+                <animate attributeName="r" from={node.r + 8} to={node.r + 22} dur="2s" repeatCount="indefinite" />
+                <animate attributeName="opacity" from="0.6" to="0" dur="2s" repeatCount="indefinite" />
               </circle>
             )}
+            {/* Drop shadow */}
+            <circle cx={node.x + 2} cy={node.y + 3} r={node.r} fill="#00000008" />
+            {/* Main circle — slightly rough */}
             <circle
               cx={node.x} cy={node.y} r={node.r}
-              fill={node.color + '22'}
-              stroke={isSel ? '#0a0a0a' : node.color}
-              strokeWidth={isSel ? 3 : 2}
-              filter={isAlert ? 'url(#glow_r)' : undefined}
+              fill={node.bg}
+              stroke={isSel ? '#18181B' : node.color}
+              strokeWidth={isSel ? 2.5 : 1.5}
+              filter="url(#sketchy)"
+              style={{ transition: 'stroke-width 0.2s ease' }}
             />
-            <text x={node.x} y={node.y - 4} textAnchor="middle" fontSize={10} fontWeight={600} fill={node.color}>
-              {node.label}
-            </text>
-            <text x={node.x} y={node.y + 10} textAnchor="middle" fontSize={8} fill="#525252">
-              {node.sub}
-            </text>
+            {/* Bold label */}
+            <text
+              x={node.x} y={node.y - 2}
+              textAnchor="middle"
+              className="sketch-label"
+              fontSize={16}
+              fontWeight={700}
+              fill={node.color}
+            >{node.label}</text>
+            {/* Subtitle */}
+            <text
+              x={node.x} y={node.y + 16}
+              textAnchor="middle"
+              className="sketch-label"
+              fontSize={11}
+              fill="#71717A"
+            >{node.sub}</text>
           </g>
         )
       })}
@@ -266,7 +437,7 @@ function GraphSvg({ onSelect, selected }: { onSelect: (s: string | null) => void
 }
 
 // ── Risk Profile Sidebar ──────────────────────────────────────────────────────
-function RiskSidebar({ selected }: { selected: string | null; loading: boolean }) {
+function RiskSidebar({ selected, loading }: { selected: string | null; loading: boolean }) {
   const [resolving, setResolving] = useState(false)
   const [resolved,  setResolved]  = useState(false)
 
@@ -278,16 +449,12 @@ function RiskSidebar({ selected }: { selected: string | null; loading: boolean }
   const isVendorC = selected === 'Vendor C' || !selected
 
   return (
-    <div className="bg-surface rounded-2xl flex flex-col overflow-hidden animate-slide-in shadow-card">
+    <div className="bg-surface rounded-2xl flex flex-col overflow-hidden shadow-card">
       {/* Header */}
       <div className="px-5 py-4" style={{ borderBottom: '1px solid #F4F4F5' }}>
-        <p className="label-cap">Risk Profile</p>
-        <h3 className="text-sm font-bold text-foreground mt-1">
-          {isVendorC ? 'Vendor C' : selected}
-        </h3>
-        {isVendorC && (
-          <p className="text-xs text-muted font-mono mt-0.5">GSTIN: 27AADCB2230M1Z2</p>
-        )}
+        <p className="text-[10px] font-semibold tracking-widest uppercase text-muted">Risk Profile</p>
+        <h3 className="text-sm font-bold text-foreground mt-1">{isVendorC ? 'Vendor C' : selected}</h3>
+        {isVendorC && <p className="text-xs text-muted font-mono mt-0.5">GSTIN: 27AADCB2230M1Z2</p>}
       </div>
 
       <div className="flex-1 overflow-y-auto px-5 py-4 space-y-5">
@@ -296,11 +463,11 @@ function RiskSidebar({ selected }: { selected: string | null; loading: boolean }
           <TrustGauge value={isVendorC ? 32 : 74} size={130} label="Compliance Score" />
         </div>
 
-        {/* AI Audit trail */}
-        <div className="bg-danger-lt rounded-xl p-3.5">
+        {/* Audit finding */}
+        <div className="bg-red-50 border border-red-100 rounded-xl p-3.5">
           <div className="flex items-center gap-2 mb-2">
-            <Zap size={13} className="text-danger flex-shrink-0" />
-            <span className="text-xs font-semibold text-danger">AI Audit Finding</span>
+            <Zap size={13} className="text-red-600 flex-shrink-0" />
+            <span className="text-xs font-semibold text-red-600">Audit Finding</span>
           </div>
           <p className="text-xs text-foreground/80 leading-relaxed">
             {isVendorC
@@ -311,43 +478,43 @@ function RiskSidebar({ selected }: { selected: string | null; loading: boolean }
 
         {/* Financial impact */}
         <div className="bg-bg rounded-xl p-3.5">
-          <p className="label-cap mb-2.5">Financial Impact</p>
+          <p className="text-[10px] font-semibold tracking-widest uppercase text-muted mb-2.5">Financial Impact</p>
           <div className="grid grid-cols-2 gap-3">
             <div>
-              <p className="text-lg font-bold text-danger">₹4,20,000</p>
+              <p className="text-lg font-bold text-red-600">₹4,20,000</p>
               <p className="text-xs text-muted">ITC at Risk</p>
             </div>
             <div>
-              <p className="text-lg font-bold text-warning">14</p>
+              <p className="text-lg font-bold text-amber-500">14</p>
               <p className="text-xs text-muted">Open Anomalies</p>
             </div>
           </div>
         </div>
 
-        {/* Anomaly flags */}
+        {/* Flags */}
         <div className="space-y-2">
           <p className="text-xs text-muted font-medium">Detected Flags</p>
           {['CIRCULAR_TRADE', 'VALUE_MISMATCH', 'MISSING_PAYMENT'].map(f => (
-            <div key={f} className="flex items-center gap-2.5 bg-bg rounded-lg border border-border px-3 py-2">
-              <XCircle size={13} className="text-danger flex-shrink-0" />
+            <div key={f} className="flex items-center gap-2.5 bg-bg rounded-lg border border-[#F4F4F5] px-3 py-2">
+              <XCircle size={13} className="text-red-600 flex-shrink-0" />
               <span className="text-xs font-mono text-foreground/80">{f}</span>
             </div>
           ))}
           {resolved && (
-            <div className="flex items-center gap-2.5 bg-success/10 rounded-lg border border-success/30 px-3 py-2">
-              <CheckCircle2 size={13} className="text-success flex-shrink-0" />
-              <span className="text-xs font-mono text-success">AUTO_RESOLVED</span>
+            <div className="flex items-center gap-2.5 bg-emerald-50 rounded-lg border border-emerald-200 px-3 py-2">
+              <CheckCircle2 size={13} className="text-emerald-600 flex-shrink-0" />
+              <span className="text-xs font-mono text-emerald-600">AUTO_RESOLVED</span>
             </div>
           )}
         </div>
       </div>
 
-      {/* Action buttons */}
+      {/* Actions */}
       <div className="px-5 pb-5 pt-3 space-y-2.5" style={{ borderTop: '1px solid #F4F4F5' }}>
         <button
           onClick={handleResolve}
           disabled={resolving || resolved}
-          className="w-full flex items-center justify-center gap-2 bg-accent hover:bg-accent/90 disabled:opacity-60 disabled:cursor-not-allowed text-white font-semibold py-2.5 rounded-lg text-sm transition-all shadow-glow"
+          className="w-full flex items-center justify-center gap-2 bg-accent hover:bg-accent/90 disabled:opacity-60 disabled:cursor-not-allowed text-white font-semibold py-2.5 rounded-lg text-sm transition-all"
         >
           {resolving
             ? <><RefreshCw size={14} className="animate-spin" /> Triggering Agent…</>
@@ -355,7 +522,7 @@ function RiskSidebar({ selected }: { selected: string | null; loading: boolean }
             ? <><CheckCircle2 size={14} /> Resolution Sent</>
             : <><Zap size={14} /> Trigger Auto-Resolution Agent</>}
         </button>
-        <button className="w-full flex items-center justify-center gap-2 border border-danger/40 hover:bg-danger/10 text-danger font-semibold py-2.5 rounded-lg text-sm transition-all">
+        <button className="w-full flex items-center justify-center gap-2 border border-red-300 hover:bg-red-50 text-red-600 font-semibold py-2.5 rounded-lg text-sm transition-all">
           <XCircle size={14} />
           Halt Vendor Payment
         </button>

@@ -10,6 +10,7 @@ import GraphPage from '@/pages/GraphPage'
 import PatternsPage from '@/pages/PatternsPage'
 import UploadPage from '@/pages/UploadPage'
 import { ChatPage } from '@/pages/ChatPage'
+import WhatsAppPage from '@/pages/WhatsAppPage'
 import ProfilePage from '@/pages/ProfilePage'
 
 /**
@@ -41,6 +42,7 @@ function AppRoutes() {
         <Route path="/patterns"  element={<PatternsPage />} />
         <Route path="/upload"    element={<UploadPage />} />
         <Route path="/chat"      element={<ChatPage />} />
+        <Route path="/whatsapp" element={<WhatsAppPage />} />
       </Route>
       <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>

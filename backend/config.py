@@ -82,6 +82,13 @@ APP_DESCRIPTION: str = (
     "pattern detection, and explainable ML scoring."
 )
 
+# ---------------------------------------------------------------------------
+# Twilio (WhatsApp)
+# ---------------------------------------------------------------------------
+TWILIO_ACCOUNT_SID: str = os.getenv("TWILIO_ACCOUNT_SID", "")
+TWILIO_AUTH_TOKEN: str = os.getenv("TWILIO_AUTH_TOKEN", "")
+TWILIO_WHATSAPP_NUMBER: str = os.getenv("TWILIO_WHATSAPP_NUMBER", "")
+
 # CORS origins allowed to call the API (React dev server)
 CORS_ORIGINS: list[str] = os.getenv(
     "CORS_ORIGINS", "http://localhost:3000,http://localhost:5173"

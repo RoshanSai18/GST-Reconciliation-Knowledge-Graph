@@ -11,6 +11,7 @@ import {
   ChevronRight,
   MessageSquare,
   UserCircle,
+  Phone,
 } from 'lucide-react'
 import { useAuth } from '@/hooks/useAuth'
 import { cn } from '@/lib/utils'
@@ -23,6 +24,8 @@ const NAV_ITEMS = [
   { to: '/graph',     icon: Network,          label: 'Graph Explorer' },
   { to: '/patterns',  icon: AlertTriangle,    label: 'Patterns' },
   { to: '/upload',    icon: Upload,           label: 'Upload Data' },
+  { to: '/chat',      icon: MessageSquare,    label: 'GST Assistant' },
+  { to: '/whatsapp',  icon: Phone,            label: 'WhatsApp' },
 ]
 
 export default function Sidebar() {
@@ -51,7 +54,7 @@ export default function Sidebar() {
         </div>
         <div>
           <span className="text-[15px] font-bold tracking-tight text-foreground">
-            Graph<span className="text-accent">GST</span>
+            GST<span className="text-accent">Insights</span>
           </span>
           <p className="label-cap" style={{ fontSize: '0.55rem', marginTop: 1 }}>AI Reconciliation</p>
         </div>
